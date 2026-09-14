@@ -397,6 +397,10 @@ export function FlightLogParser(logData) {
         dyn_notch_min_hz: null, // Dyn Notch min limit in Hz for the filter
         dyn_notch_max_hz: null, // Dyn Notch max limit in Hz for the filter
         rates_type: null,
+        // Rotorflight enable-bitmap header (ref: rfblackbox/js/flightlog_parser.js:347).
+        // BF uses fields_disabled_mask (DISABLE bitmap); RF uses fields_mask (ENABLE bitmap).
+        // Parsed as int below; consumed by FlightLog.isFieldDisabled RF branch.
+        fields_mask: null,
         fields_disabled_mask: null,
         vbat_sag_compensation: null,
         gyro_to_use: null,
@@ -715,6 +719,7 @@ export function FlightLogParser(logData) {
         "dyn_notch_max_hz",
         "rates_type",
         "vbat_sag_compensation",
+        "fields_mask",
         "fields_disabled_mask",
         "motor_pwm_protocol",
         "gyro_to_use",

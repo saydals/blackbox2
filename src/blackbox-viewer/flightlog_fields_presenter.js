@@ -1207,8 +1207,8 @@ FlightLogFieldPresenter.decodeFieldRfToFriendly = function (flightLog, fieldName
         case "motor[1]":
         case "motor[2]":
         case "motor[3]":
-            // 참조 FlightLog.prototype.rcMotorRawToPct = value / 10 (본 뷰어엔 없음, 5단계 인계).
-            return `${(value / 10).toFixed(1)} %`;
+            // 4단계에서 인라인했던 value/10을 5단계 신설 FlightLog.rcMotorRawToPct 호출로 교체 (인계 완료).
+            return `${flightLog.rcMotorRawToPct(value).toFixed(1)} %`;
 
         case "servo[0]":
         case "servo[1]":
@@ -1690,6 +1690,16 @@ FlightLogFieldPresenter.ConvertFieldValue = function (flightLog, fieldName, toFr
         return 0;
     }
 
+    // RF chart-unit conversion for RF-only fields (reference has no ConvertFieldValue;
+    // these mirror decodeFieldRfToFriendly scales so chart min/max match displayed values).
+    // Returns undefined for shared/BF fields so they fall through to the BF switch untouched.
+    if (flightLog && flightLog.getSysConfig().firmwareType === FIRMWARE_TYPE_ROTORFLIGHT) {
+        const rfConverted = FlightLogFieldPresenter.ConvertFieldRfValue(flightLog, fieldName, toFriendly, value);
+        if (rfConverted !== undefined) {
+            return rfConverted;
+        }
+    }
+
     const highResolutionScale = flightLog && flightLog.getSysConfig().blackbox_high_resolution > 0 ? 10 : 1;
 
     switch (fieldName) {
@@ -1872,6 +1882,134 @@ FlightLogFieldPresenter.ConvertFieldValue = function (flightLog, fieldName, toFr
             return value;
     }
 };
+
+    /**
+     * RF-only chart-unit conversion (mirrors decodeFieldRfToFriendly scales).
+     * Returns undefined for fields the BF switch must handle (shared names like
+     * time/gyroADC/axisError/rssi/flightModeFlags) so ConvertFieldValue falls through.
+     */
+    FlightLogFieldPresenter.ConvertFieldRfValue = function (flightLog, fieldName, toFriendly, value) {
+        switch (fieldName) {
+            case "rcCommand[0]":
+            case "rcCommand[1]":
+            case "rcCommand[2]":
+            case "rcCommand[3]":
+                return toFriendly ? value / 5 : value * 5;
+            case "rcCommand[4]":
+                return toFriendly ? value / 10 : value * 10;
+
+            case "setpoint[0]":
+            case "setpoint[1]":
+            case "setpoint[2]":
+                return value;
+            case "setpoint[3]":
+                return toFriendly ? value * 0.012 : value / 0.012;
+
+            case "mixer[0]":
+            case "mixer[1]":
+                return toFriendly ? value * 0.012 : value / 0.012;
+            case "mixer[2]":
+                return toFriendly ? value * 0.024 : value / 0.024;
+            case "mixer[3]":
+                return toFriendly ? value / 10 : value * 10;
+
+            case "axisP[0]":
+            case "axisP[1]":
+            case "axisP[2]":
+            case "axisI[0]":
+            case "axisI[1]":
+            case "axisI[2]":
+            case "axisD[0]":
+            case "axisD[1]":
+            case "axisD[2]":
+            case "axisF[0]":
+            case "axisF[1]":
+            case "axisF[2]":
+            case "axisB[0]":
+            case "axisB[1]":
+            case "axisB[2]":
+            case "axisO[0]":
+            case "axisO[1]":
+            case "axisO[2]":
+            case "axisSum[0]":
+            case "axisSum[1]":
+            case "axisSum[2]":
+            case "axisPD[0]":
+            case "axisPD[1]":
+            case "axisPD[2]":
+                return toFriendly ? flightLog.getPIDPercentage(value) : value / flightLog.getPIDPercentage(1);
+
+            case "attitude[0]":
+            case "attitude[1]":
+            case "attitude[2]":
+                return toFriendly ? value / 10 : value * 10;
+
+            case "gyroRAW[0]":
+            case "gyroRAW[1]":
+            case "gyroRAW[2]":
+                return value;
+
+            case "accADC[0]":
+            case "accADC[1]":
+            case "accADC[2]":
+                return toFriendly ? flightLog.accRawToGs(value) : value / flightLog.accRawToGs(1);
+
+            case "Vbat":
+            case "Vbec":
+            case "Vbus":
+            case "EscV":
+            case "Esc2V":
+                return toFriendly ? value / 100 : value * 100;
+
+            case "Ibat":
+            case "EscI":
+            case "Esc2I":
+                return toFriendly ? value / 100 : value * 100;
+
+            case "Tmcu":
+            case "Tesc":
+            case "Tesc2":
+            case "Tbec":
+            case "EscCap":
+            case "Esc2Cap":
+            case "EscRPM":
+            case "Esc2RPM":
+                return value;
+
+            case "EscThr":
+            case "EscPwm":
+                return toFriendly ? value / 10 : value * 10;
+
+            case "altitude":
+            case "vario":
+                return toFriendly ? value / 100 : value * 100;
+
+            case "headspeed":
+            case "tailspeed":
+                return value;
+
+            case "motor[0]":
+            case "motor[1]":
+            case "motor[2]":
+            case "motor[3]":
+                // rcMotorRawToPct(1) = 0.1 — truthy, so no div-by-zero. Written defensively
+                // because flightLog is stubbed in unit harnesses.
+                return toFriendly ? flightLog.rcMotorRawToPct(value) : value / flightLog.rcMotorRawToPct(1);
+
+            case "servo[0]":
+            case "servo[1]":
+            case "servo[2]":
+            case "servo[3]":
+            case "servo[4]":
+            case "servo[5]":
+            case "servo[6]":
+            case "servo[7]":
+                return value;
+
+            default:
+                return undefined;
+        }
+    };
 
 /**
  * Attempt to decode debug fields values from log file to chart units and back.

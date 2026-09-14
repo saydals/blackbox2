@@ -35,9 +35,122 @@ home\betaflight\blackbox2
 - [x] 2단계: 펌웨어 식별 계층 (`FIRMWARE_TYPE_ROTORFLIGHT=5`, `parseFirmwareRevision`에 Rotorflight 정규식, `firmwareToApiVersion` RF 분기)
 - [x] 3단계: `flightlog_fielddefs.js` RF 이식 (RF flight modes 4.2/4.3/4.6, `FEATURES_RF_*`, `DEBUG_MODE_RF_*`, `FAST_PROTOCOL_RF*`, `GOVSTATES`/`RESCUE`/`AIRBORNE`, `MAX_MOTOR_NUMBER` 4, servo 8ch)
 - [x] 4단계: `flightlog_fields_presenter.js` RF 이식 (RF friendly names + debug 디코드 RF 분기. BF 출력 바이트 동등 계약)
-- [ ] 5단계: `flightlog.js`/`flightlog_parser.js` 계산식 이식 (rcCommand 5ch, motor/servo 변환식, RF 전용 헤더, `isFieldDisabled` RF 플래그)
+- [x] 5단계: `flightlog.js`/`flightlog_parser.js` 계산식 이식 (rcMotorRawToPct 신설, convert RF 분기, isFieldDisabled·isDigitalProtocol·estimateNumMotors RF 분기, fields_mask 파싱)
 - [ ] 6단계: 그래프·워크스페이스·UI (RF 기본 워크스페이스 6종: Filter/Governor/Yaw/Pitch/Roll/Power, HeaderDialog RF 파라미터, craft 3D 헬기 표시, GPS/WP UI 정리)
 - [ ] 7단계: 브랜딩+빌드 검증 (package.json/applicationId/아이콘/타이틀 Rotorflight, `npm run build`+`android:sync`, RF 샘플 로그 파싱 테스트)
+
+## 5단계 상세 기록 (flightlog 계산식 + 파서 헤더, 2026-09-15)
+
+### 목표
+
+- `flightlog.js`에 RF 계산식 분기, `flightlog_parser.js`에 RF 전용 헤더 파싱,
+  presenter에 RF convert 분기. BF 계산 결과는 변경 없음.
+
+### 참조
+
+- `rfblackbox/js/flightlog.js:239-249` (estimateNumMotors, MAX 4),
+  `:978-985` (accRawToGs 동일 / rcCommandRawToThrottle 동일),
+  `:987-990` (rcMotorRawToPct = value/10),
+  `:992-1012` (isDigitalProtocol — BF 테이블과 case 동일, RF 테이블 인덱싱),
+  `:1014-1017` (getPIDPercentage 동일),
+  `:1020-1031` (getReferenceVoltageMillivolts — RF는 BF 4.0+와 동일 `vbatref*10`),
+  `:1118-1145` (isFieldEnabled — fields_mask ENABLE 비트맵 23비트).
+- `rfblackbox/js/flightlog_parser.js:347` (sysConfig.fields_mask),
+  `:759` (`H fields_mask` int 파싱), `:788` (`H motor_poles` int 파싱).
+- 참조 presenter에는 `ConvertFieldValue`가 없음 → convert는 decode 스케일에서 역산.
+
+### 정확 변경점 (1/2: flightlog.js + parser)
+
+**A. `flightlog.js:6-17` (import)** — `MAX_MOTOR_NUMBER_RF`,
+`FAST_PROTOCOL_RF_ACTIVE`, `FIRMWARE_TYPE_ROTORFLIGHT` 추가. 기존 import 유지.
+
+**B. `flightlog.js:estimateNumMotors` (RF 상한 4)** — RF면 `MAX_MOTOR_NUMBER_RF=4`,
+BF면 기존 `MAX_MOTOR_NUMBER=8`. 참조는 단일 상수 4지만 본 뷰어는 BF 8모터 보호를 위해 분기.
+
+**C. `flightlog.js:rcMotorRawToPct` 신설** — 참조 `:987-990` 그대로 `value/10.0`.
+BF의 `rcMotorRawToPctPhysical`(DSHOT/min-max 보정)은 untouched.
+4단계 presenter의 `value/10` 인라인을 `flightLog.rcMotorRawToPct(value)` 호출로 교체 (인계 완료).
+
+**D. `flightlog.js:isDigitalProtocol` RF 테이블 분기** — RF면
+`FAST_PROTOCOL_RF_ACTIVE[fast_pwm_protocol]` 조회. RF 테이블에 `DISABLED`(4.2+)·
+`CASTLE_LINK`(4.5+)가 있어 analog case에 2개 추가. BF 테이블·case 순서 untouched.
+
+**E. `flightlog.js:getReferenceVoltageMillivolts` RF 조건 추가** —
+참조 `:1021-1023`대로 RF는 BF 4.0+와 동일하게 `vbatref*10`. BF 조건식 untouched.
+
+**F. `flightlog.js:isFieldDisabled` RF 분기 (선두 return)** — 참조 `:1118-1145`의
+ENABLE 비트맵을 본 뷰어의 DISABLE 플래그 형태로 반전 매핑:
+RC_COMMAND←b0, SETPOINT←b1, MIXER(미소비)←b2, PID←b3, ATTITUDE(미소비)←b4,
+GYROUNFILT←b5, GYRO←b6, ACC←b7, MAGNETOMETER←b8, ALTITUDE←b9, BATTERY←b10,
+RSSI←b11, GPS←b12, RPM←b13, MOTORS←b14, SERVO←b15. DEBUG는 mask에 비트가 없어
+`false`(enabled)로 두고 frame defs presence에 맡김. BF 분기 untouched.
+
+**G. `flightlog_parser.js:fields_mask` 파싱 2줄** — sysConfig 기본값 `null` + 
+`PARSE_INT_FIELDS`에 `"fields_mask"` 추가. `motor_poles`는 이미 양쪽 모두 int 파싱 존재
+(참조 `:788` = 본 `:747`), 추가 없음.
+
+<!-- 5STAGE-PART2 -->
+
+### 정확 변경점 (2/2: presenter convert + 계약·검증·롤백·리스크)
+
+**H. `flightlog_fields_presenter.js:ConvertFieldValue` RF 선두 분기** —
+RF면 `ConvertFieldRfValue(...)`를 먼저 호출하고 `undefined`가 아닐 때만 반환,
+그 외(공유 필드·BF)는 기존 BF switch로 fallthrough. BF switch untouched.
+
+**I. `ConvertFieldRfValue` 신설 (decode 스케일 역산)** — `rcCommand[0..3]` /5·`[4]` /10,
+`setpoint[3]` ×0.012, `mixer[0..1]` ×0.012·`[2]` ×0.024·`[3]` /10,
+`axisP/I/D/F/B/O/Sum/PD` getPIDPercentage, `attitude` /10, `gyroRAW` identity,
+`accADC` accRawToGs, `Vbat/Vbec/Vbus/EscV/Esc2V`·`Ibat/EscI/Esc2I` /100,
+`Tmcu/Tesc/Tesc2/Tbec/EscCap/Esc2Cap/EscRPM/Esc2RPM/headspeed/tailspeed/servo[0..7]` identity,
+`EscThr/EscPwm` /10, `altitude/vario` /100, `motor[0..3]` rcMotorRawToPct.
+공유명(`time/gyroADC/gyroUnfilt/axisError/rcCommands/flightModeFlags/rssi/GPS/.../debug`)
+은 `default: undefined`로 BF switch에 위임. `debug[0..7]`도 BF `ConvertDebugFieldValue`에
+위임 (RF debug convert는 참조에도 없고 4단계 decode는 표시용이라 차트 변환 불필요).
+
+### 동작 계약 (before → after)
+
+- BF 로그: `firmwareType!==5` → RF 분기 3곳(estimate 상한·convert·isFieldDisabled) 전부
+  스킵, `isDigitalProtocol`은 BF 테이블 조회, `getReferenceVoltageMillivolts` 기존 조건 →
+  출력 이전과 동일.
+- RF 로그: `rcMotorRawToPct(500)`→`50`, `isDigitalProtocol(CASTLE_LINK)`→`false`,
+  `getReferenceVoltageMillivolts(vbatref=430)`→`4300`,
+  `isFieldDisabled(fields_mask=MOTOR|SERVO|...)`→`MOTORS:false, SERVO:false, GPS:true`,
+  `ConvertFieldRfValue(mixer[2],fwd,100)`→`2.4` / `(back,2.4)`→`100`,
+  `ConvertFieldValue` 공유 필드(`time`, `gyroADC`)는 BF switch 그대로.
+
+### 검증 (명령+결과)
+
+- `npm run build` — 성공. `npm run lint` (eslint + typecheck) — 성공.
+- 하네스 `/tmp/rfharness/verify5.mjs` 18 케이스 ALL PASS (prototype stub + presenter rewire):
+  rcMotorRawToPct / isDigital RF·BF / refV RF·BF / isFieldDisabled 5종 /
+  decode motor / convert setpoint·mixer2 왕복·motor 왕복·fallthrough 2종.
+- 4단계 하네스 `/tmp/rfharness/verify.mjs` 13 케이스 ALL PASS 유지
+  (단, fake flightLog에 `rcMotorRawToPct` stub 추가 필요 — 실코드는 FlightLog 메서드로 존재).
+- 테이블·BF 불변: `FAST_PROTOCOL`·`rcMotorRawToPctPhysical`·BF switch 무수정.
+
+### 롤백
+
+- 5단계 커밋 하나만 revert. 부분 되돌리기:
+  `isFieldDisabled` RF 블록(선두 return) + `ConvertFieldValue` RF 선두 6줄만 제거하면
+  BF와 완전 동일 동작. `fields_mask` 파싱 2줄·`rcMotorRawToPct` 신설은 미참조 시 무해.
+
+### 리스크·미결
+
+1. `fields_mask` 미존재 구 RF 로그: `?? 0` → 전부 disabled 판정 → computed 필드
+   (axisSum/rcCommands/axisError) 미생성. `H fields_mask` 없는 로그 발견 시 기본값을
+   전비트 ON으로 완화할 것 (`flightlog.js:isFieldDisabled`).
+2. RF ATTITUDE/MIXER/GOV 등 mask 비트는 본 뷰어 computed 로직이 소비하지 않음
+   (참조도 axisSum/axisPD/axisError만 사용). GOV/VBEC 등 RF 전용 computed는 6단계 UI에서.
+3. RF debug 차트 변환 미구현 (`ConvertDebugFieldValue` BF 공용 경로). RF debug 그래프
+   스케일이 어긋날 수 있음 → 6단계 그래프 작업에서 RF debug convert 추가 검토.
+4. RF 실로그 E2E 미수행 (샘플 `.bbl` 없음). 7단계에서 RF 실로그로
+   `fields_mask` 파싱→`isFieldDisabled`→computed 필드 생성까지 E2E 검증.
+
+### 다음 단계 인계 (6단계)
+
+- 범위: 그래프·워크스페이스·UI. `graph_config.js` RF 기본 필드셋,
+  `HeaderDialog` RF 파라미터(fields_mask·motor_poles·gov), craft 3D 헬기, GPS/WP UI 정리.
+- 5단계에서 RF convert 기반이 마련되어 차트 min/max는 RF 스케일로 계산됨.
 
 ## 4단계 상세 기록 (presenter RF 이식, 2026-09-15)
 

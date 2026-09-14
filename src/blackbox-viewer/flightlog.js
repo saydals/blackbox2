@@ -4,14 +4,17 @@ import { FlightLogParser } from "./flightlog_parser";
 import { GPS_transform } from "./gps_transform";
 import {
     MAX_MOTOR_NUMBER,
+    MAX_MOTOR_NUMBER_RF,
     DSHOT_MIN_VALUE,
     DSHOT_RANGE,
     FlightLogEvent,
     AXIS,
     FAST_PROTOCOL,
+    FAST_PROTOCOL_RF_ACTIVE,
     SUPER_EXPO_YAW,
     FIRMWARE_TYPE_BETAFLIGHT,
     FIRMWARE_TYPE_CLEANFLIGHT,
+    FIRMWARE_TYPE_ROTORFLIGHT,
 } from "./flightlog_fielddefs";
 import { IMU } from "./imu";
 import { FIFOCache } from "./cache";
@@ -327,7 +330,13 @@ export function FlightLog(logData) {
     const estimateNumMotors = () => {
         let count = 0;
 
-        for (let j = 0; j < MAX_MOTOR_NUMBER; j++) {
+        // RF logs cap at 4 motors (ref: MAX_MOTOR_NUMBER=4). BF keeps 8.
+        // NOTE: count only accumulates while indices are contiguous from 0,
+        // so RF motor[0..3] is unaffected by BF's motor[4..7] expectations.
+        const motorLimit =
+            this.getSysConfig().firmwareType === FIRMWARE_TYPE_ROTORFLIGHT ? MAX_MOTOR_NUMBER_RF : MAX_MOTOR_NUMBER;
+
+        for (let j = 0; j < motorLimit; j++) {
             if (this.getMainFieldIndexByName(`motor[${j}]`) !== undefined) {
                 count++;
             }
@@ -1591,6 +1600,12 @@ FlightLog.prototype.ThrottleTorcCommandRaw = function (value) {
     );
 };
 
+FlightLog.prototype.rcMotorRawToPct = function (value) {
+    // Rotorflight motor raw is 0-1000 permille (ref: rfblackbox/js/flightlog.js:987-990).
+    // BF path keeps using rcMotorRawToPctPhysical (min/maxthrottle + DSHOT compensation).
+    return value / 10.0;
+};
+
 FlightLog.prototype.rcMotorRawToPctPhysical = function (value) {
     // Motor displayed as percentage
     let motorPct;
@@ -1621,12 +1636,21 @@ FlightLog.prototype.PctPhysicalTorcMotorRaw = function (value) {
 
 FlightLog.prototype.isDigitalProtocol = function () {
     let digitalProtocol;
-    switch (FAST_PROTOCOL[this.getSysConfig().fast_pwm_protocol]) {
+    // RF logs index into the RF fast-protocol table (ref: FAST_PROTOCOL_RF_ACTIVE,
+    // selected by adjustFieldDefsList). BF table untouched.
+    // NOTE: RF has no DSHOT150/300/600/1200 entries — those fall to `default: true`
+    // in the RF branch, matching the reference's default-digital behavior. The only
+    // RF-specific analog additions are CASTLE_LINK (4.5+) and DISABLED, handled below.
+    const protocolTable =
+        this.getSysConfig().firmwareType === FIRMWARE_TYPE_ROTORFLIGHT ? FAST_PROTOCOL_RF_ACTIVE : FAST_PROTOCOL;
+    switch (protocolTable[this.getSysConfig().fast_pwm_protocol]) {
         case "PWM":
         case "ONESHOT125":
         case "ONESHOT42":
         case "MULTISHOT":
         case "BRUSHED":
+        case "DISABLED":
+        case "CASTLE_LINK":
             digitalProtocol = false;
             break;
         case "DSHOT150":
@@ -1648,8 +1672,9 @@ FlightLog.prototype.getPIDPercentage = function (value) {
 
 FlightLog.prototype.getReferenceVoltageMillivolts = function () {
     if (
-        this.getSysConfig().firmwareType === FIRMWARE_TYPE_BETAFLIGHT &&
-        semver.gte(this.getSysConfig().firmwareVersion, "4.0.0")
+        this.getSysConfig().firmwareType === FIRMWARE_TYPE_ROTORFLIGHT ||
+        (this.getSysConfig().firmwareType === FIRMWARE_TYPE_BETAFLIGHT &&
+            semver.gte(this.getSysConfig().firmwareVersion, "4.0.0"))
     ) {
         return this.getSysConfig().vbatref * 10;
     } else if (
@@ -1749,6 +1774,34 @@ FlightLog.prototype.getFeatures = function (enabledFeatures) {
 FlightLog.prototype.isFieldDisabled = function () {
     const disabledFields = this.getSysConfig().fields_disabled_mask;
     const disabledFieldsFlags = {};
+    // Rotorflight uses a fields_mask ENABLE bitmap (ref: rfblackbox/js/flightlog.js:1118-1145),
+    // while BF uses fields_disabled_mask DISABLE bitmap. RF branch reads sysConfig.fields_mask
+    // (parsed below; null-safe) and maps only the flags this viewer consumes.
+    if (this.getSysConfig().firmwareType === FIRMWARE_TYPE_ROTORFLIGHT) {
+        const enabledFields = this.getSysConfig().fields_mask ?? 0;
+        const enabled = (bit) => (enabledFields & (1 << bit)) !== 0;
+        disabledFieldsFlags.PID = !enabled(3);
+        disabledFieldsFlags.RC_COMMANDS = !enabled(0);
+        disabledFieldsFlags.SETPOINT = !enabled(1);
+        disabledFieldsFlags.BATTERY = !enabled(10);
+        disabledFieldsFlags.MAGNETOMETER = !enabled(8);
+        disabledFieldsFlags.ALTITUDE = !enabled(9);
+        disabledFieldsFlags.RSSI = !enabled(11);
+        disabledFieldsFlags.GYRO = !enabled(6);
+        disabledFieldsFlags.ACC = !enabled(7);
+        disabledFieldsFlags.DEBUG = true; // RF has no DEBUG enable bit; computed below from field presence
+        disabledFieldsFlags.MOTORS = !enabled(14);
+        disabledFieldsFlags.GPS = !enabled(12);
+        disabledFieldsFlags.RPM = !enabled(13);
+        disabledFieldsFlags.GYROUNFILT = !enabled(5);
+        disabledFieldsFlags.SERVO = !enabled(15);
+        // NOTE: fields_mask has no DEBUG enable bit (ref has none either). Presence of
+        // debug fields is decided by the frame defs, not the mask — but isFieldDisabled
+        // runs before buildFieldNames completes, so default DEBUG=false (enabled) and let
+        // downstream presence checks decide. addComputedFieldNames doesn't consume DEBUG.
+        disabledFieldsFlags.DEBUG = false;
+        return disabledFieldsFlags;
+    }
     if (
         this.getSysConfig().firmwareType === FIRMWARE_TYPE_BETAFLIGHT &&
         firmwareGreaterOrEqual(this.getSysConfig(), "2025.12.0")
