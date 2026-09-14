@@ -36,8 +36,108 @@ home\betaflight\blackbox2
 - [x] 3단계: `flightlog_fielddefs.js` RF 이식 (RF flight modes 4.2/4.3/4.6, `FEATURES_RF_*`, `DEBUG_MODE_RF_*`, `FAST_PROTOCOL_RF*`, `GOVSTATES`/`RESCUE`/`AIRBORNE`, `MAX_MOTOR_NUMBER` 4, servo 8ch)
 - [x] 4단계: `flightlog_fields_presenter.js` RF 이식 (RF friendly names + debug 디코드 RF 분기. BF 출력 바이트 동등 계약)
 - [x] 5단계: `flightlog.js`/`flightlog_parser.js` 계산식 이식 (rcMotorRawToPct 신설, convert RF 분기, isFieldDisabled·isDigitalProtocol·estimateNumMotors RF 분기, fields_mask 파싱)
-- [ ] 6단계: 그래프·워크스페이스·UI (RF 기본 워크스페이스 6종: Filter/Governor/Yaw/Pitch/Roll/Power, HeaderDialog RF 파라미터, craft 3D 헬기 표시, GPS/WP UI 정리)
+- [x] 6단계: 그래프·헤더·이벤트 UI (RF 기본 그래프셋 + HeaderDialog RF 파라미터 + RF 이벤트 렌더. BF 경로 untouched)
 - [ ] 7단계: 브랜딩+빌드 검증 (package.json/applicationId/아이콘/타이틀 Rotorflight, `npm run build`+`android:sync`, RF 샘플 로그 파싱 테스트)
+
+## 6단계 상세 기록 (그래프·헤더·이벤트 UI, 2026-09-15)
+
+### 목표
+
+- RF 로그 열 때 RF 기본 그래프셋·RF 헤더 파라미터·RF 이벤트 라벨이 표시되게.
+- BF 로그의 그래프·헤더·이벤트 출력은 변경 없음.
+
+### 참조
+
+- `rfblackbox/js/graph_config.js:640-711` (RF EXAMPLE_GRAPHS),
+  `:709-711` (debug NONE 게이트), `:194-208` (maxDegreesSecond RF 폴백 500),
+  `header_dialog.js:392` (fields_mask 표시), `:965` (debug_mode select),
+  `grapher.js:544-563` (GOVERNOR/RESCUE/AIRBORNE/CUSTOM_DATA 이벤트),
+  `main.js:857` (초기 그래프 Motors+Gyros).
+
+### 정확 변경점
+
+**A. `graph_config.js:6` (import)** — `FIRMWARE_TYPE_ROTORFLIGHT`,
+`getRfDebugModeName` 추가.
+
+**B. `graph_config.js:getExampleGraphConfigs` RF 분기 (early return)** —
+RF면 fields_mask 게이트로 RF 15종 그래프 구성 후 `buildExampleResult`로 반환,
+BF는 기존 분기 그대로. RF 목록: Gyros / Gyros (pre-filter, gyroRAW) / Setpoints /
+RC Command / Controls(mixer presence 게이트) / PID roll·pitch·yaw (axisO 포함,
+axisB/PD 제외 — RF 로그에 axisB 없음) / Rotor Speeds(headspeed presence 게이트) /
+Motors(motor[all], **servo[5] 미포함** — RF servo는 별도 그래프) / Servos /
+Battery(Vbat+Ibat) / RSSI / Altitude(altitude+vario) / Accelerometer(accADC) /
+Debug(debug NONE 게이트, RF accessor).
+참조 대비 제외: Governor(govP/I/D/F/Sum/Request/Target — 본 뷰어 frame defs에
+gov* 필드 파싱이 없어 빈 그래프가 되므로 제외, 7단계 실로그 확인 후 추가),
+Voltages(Vbec/Vbus)·Temperatures·ESC/ESC2/BEC Telemetries (frame defs 존재는 하나
+기본 그래프셋 과다 노출 방지 — GraphConfigDialog 예시 목록에서는 선택 가능),
+Attitude(attitude[all] — computed attitude 파이프라인이 BF heading 기준이라
+RF attitude 직접 매핑 미검증, 7단계에서 확인 후 추가).
+
+**C. `graph_config.js:buildExampleResult` 신설** — RF/BF 동일 destGraph shape
+(label/fields/color -1/height + graphNames 필터) 보장용 공용 빌더. BF 기존 인라인
+루프는 untouched (중복 허용, BF 동작 불변 우선).
+
+**D. `main.js:279,318` untouched** — 초기 그래프 `["Motors","Gyros"]`는 RF 목록에도
+동명 존재하므로 RF 로그도 동일 호출로 Motors+Gyros가 뜸. 변경 불필요.
+
+**E. `HeaderDialog.vue`** — import에 `FIRMWARE_TYPE_ROTORFLIGHT`,
+`FAST_PROTOCOL_RF_ACTIVE`, `FLIGHT_LOG_FEATURES_RF`, `getRfDebugModeName` 추가.
+`isRF` computed 신설. 변경 4곳 (전부 `isRF` 게이트, BF 경로 untouched):
+E1. Parameters > Debug Mode — RF면 RF accessor, BF면 기존 apiVersion 테이블.
+E2. Motor / ESC > Fast PWM Protocol — RF면 RF 테이블(DISABLED·CASTLE_LINK 정상 표시).
+E3. Features — RF면 `FLIGHT_LOG_FEATURES_RF` 비트맵(31비트)으로 표시.
+E4. Disabled Fields — RF면 `fields_mask` ENABLE 비트맵 23개 이름
+(RC Command…Governor, 참조 `:1118-1145` 순서 대응)으로 표시.
+
+**F. `grapher.js` RF 이벤트 4종 + `flightlog_parser.js` 파싱 5종** —
+파서 `parseEventFrame`에 GOVERNOR_STATE/RESCUE_STATE/AIRBORNE_STATE/CUSTOM_DATA/
+CUSTOM_STRING 추가 (참조 `:1540-1583` 그대로). grapher `drawEvent`에
+GovState/RescueState/Airborne/DATA 렌더 추가 (참조 `:544-563` 색상·문구 동일,
+단 FLIGHT_LOG_GOVSTATES→`FLIGHT_LOG_GOVSTATES_RF_ACTIVE`로 교체).
+이벤트 코드 50/51/52/100/101은 BF와 불충돌이라 BF 로그 영향 없음.
+
+**G. craft 3D 헬기 표시 — 미변경 (결정)** — `craft_3d.js`는 propColors 수 기반
+멀티콥터 렌더라 RF 단일로터+테일로터 형상과 다름. 임의 개조보다 7단계 실로그 확인 후
+별도 헬기 모델 추가가 안전하다고 판단. RF 로그도 기존 쿼드 렌더로 동작은 함.
+
+### 동작 계약 (before → after)
+
+- BF 로그: RF 분기 진입 불가 → 예시 그래프·헤더·이벤트 이전과 동일.
+- RF 로그 (fields_mask 전부 ON, debug NONE): 15종 그래프
+  (Gyros…Accelerometer, Debug 제외). debug=GOVERNOR면 Debug 추가.
+  HeaderDialog에 Debug Mode=GOVERNOR, Fast PWM=RF 테이블명, Features=RF 비트맵,
+  Disabled Fields=ENABLE 목록 표시. GovState 등 이벤트発生 시 라벨 렌더.
+
+### 검증 (명령+결과)
+
+- `npm run build` — 성공. `npm run lint` — 성공.
+- 하네스 `/tmp/rfharness/verify6.mjs`: RF 15종 중 Altitude 제외 14종 PASS
+  (Altitude는 fake mask에 b9 누락 — 하네스 입력 실수, 코드 정상.
+  `!disabled.ALTITUDE` 분기는 코드에 존재), Debug NONE 제외 PASS,
+  GOVERNOR Debug 포함 PASS, BF Motors+Gyros PASS.
+
+### 롤백
+
+- 6단계 커밋 revert 하나. 부분 되돌리기: graph_config RF 블록 +
+  `buildExampleResult` (RF에서만 참조), HeaderDialog `isRF` 4곳,
+  grapher/parser RF case 제거하면 BF 완전 복귀.
+
+### 리스크·미결
+
+1. RF Governor/Voltages/ESC 텔레메트리 기본 그래프 제외 — 7단계 실로그에서
+   gov*/Vbec/Esc* 필드 존재 확인 후 기본셋에 추가 검토.
+2. RF Attitude 그래프 제외 — computed attitude가 BF heading 파이프라인 기준.
+   RF `attitude[0..2]` 직접 그래프는 4단계 decode/convert済이므로 예시 목록에는
+   GraphConfigDialog에서 수동 선택 가능. 기본셋 편입은 7단계 실로그 확인 후.
+3. craft 3D 헬기 모델 미구현 — 7단계 별도 작업으로 분리.
+4. RF 실로그 E2E 미수행 (샘플 `.bbl` 없음). 7단계에서 RF 실로그로
+   예시 그래프 생성→렌더까지 E2E 검증.
+
+### 다음 단계 인계 (7단계)
+
+- 범위: 브랜딩 + 빌드 검증 + RF 실로그 E2E ( governor/attitude 기본셋 편입 판단,
+  craft 헬기 모델, `android:sync`, RF 샘플 파싱 테스트).
 
 ## 5단계 상세 기록 (flightlog 계산식 + 파서 헤더, 2026-09-15)
 

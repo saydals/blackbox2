@@ -3,7 +3,7 @@ import semver from "semver";
 import { API_VERSION_1_49 } from "../js/data_storage";
 
 import { FlightLogFieldPresenter } from "./flightlog_fields_presenter";
-import { RATES_TYPE } from "./flightlog_fielddefs";
+import { RATES_TYPE, FIRMWARE_TYPE_ROTORFLIGHT, getRfDebugModeName } from "./flightlog_fielddefs";
 import { escapeRegExp } from "./tools";
 import { getDebugFieldAxis, getDebugModes } from "../js/utils/debugModes";
 
@@ -964,6 +964,71 @@ GraphConfig.getExampleGraphConfigs = function (flightLog, graphNames) {
     const result = [];
     const EXAMPLE_GRAPHS = [];
 
+    // Rotorflight suggested graphs (ref: rfblackbox/js/graph_config.js:640-711).
+    // RF logs use isFieldDisabled() (fields_mask ENABLE bitmap, 5단계) as the gate.
+    if (flightLog.getSysConfig().firmwareType === FIRMWARE_TYPE_ROTORFLIGHT) {
+        const disabled = flightLog.isFieldDisabled();
+        if (!disabled.GYRO) {
+            EXAMPLE_GRAPHS.push({ label: "Gyros", fields: ["gyroADC[all]"] });
+        }
+        if (!disabled.GYROUNFILT) {
+            EXAMPLE_GRAPHS.push({ label: "Gyros (pre-filter)", fields: ["gyroRAW[all]"] });
+        }
+        if (!disabled.SETPOINT) {
+            EXAMPLE_GRAPHS.push({ label: "Setpoints", fields: ["setpoint[all]"] });
+        }
+        if (!disabled.RC_COMMANDS) {
+            EXAMPLE_GRAPHS.push({ label: "RC Command", fields: ["rcCommand[all]"] });
+        }
+        // MIXER has no bit in this viewer's RF disabled map; gate on field presence instead.
+        if (flightLog.getMainFieldIndexByName("mixer[0]") !== undefined) {
+            EXAMPLE_GRAPHS.push({ label: "Controls", fields: ["mixer[all]"] });
+        }
+        if (!disabled.PID) {
+            EXAMPLE_GRAPHS.push(
+                {
+                    label: "PID roll",
+                    fields: ["axisP[0]", "axisI[0]", "axisD[0]", "axisF[0]", "axisSum[0]", "gyroADC[0]", "setpoint[0]"],
+                },
+                {
+                    label: "PID pitch",
+                    fields: ["axisP[1]", "axisI[1]", "axisD[1]", "axisF[1]", "axisSum[1]", "gyroADC[1]", "setpoint[1]"],
+                },
+                {
+                    label: "PID yaw",
+                    fields: ["axisP[2]", "axisI[2]", "axisD[2]", "axisF[2]", "axisSum[2]", "gyroADC[2]", "setpoint[2]"],
+                },
+            );
+        }
+        // GOV has no bit in this viewer's RF disabled map; gate on field presence.
+        if (flightLog.getMainFieldIndexByName("headspeed") !== undefined) {
+            EXAMPLE_GRAPHS.push({ label: "Rotor Speeds", fields: ["headspeed", "tailspeed"] });
+        }
+        if (!disabled.MOTORS) {
+            EXAMPLE_GRAPHS.push({ label: "Motors", fields: ["motor[all]"] });
+        }
+        if (!disabled.SERVO) {
+            EXAMPLE_GRAPHS.push({ label: "Servos", fields: ["servo[all]"] });
+        }
+        if (!disabled.BATTERY) {
+            EXAMPLE_GRAPHS.push({ label: "Battery", fields: ["Vbat", "Ibat"] });
+        }
+        if (!disabled.RSSI) {
+            EXAMPLE_GRAPHS.push({ label: "RSSI", fields: ["rssi"] });
+        }
+        if (!disabled.ALTITUDE) {
+            EXAMPLE_GRAPHS.push({ label: "Altitude", fields: ["altitude", "vario"] });
+        }
+        if (!disabled.ACC) {
+            EXAMPLE_GRAPHS.push({ label: "Accelerometer", fields: ["accADC[all]"] });
+        }
+        if (getRfDebugModeName(flightLog.getSysConfig().debug_mode) !== "NONE") {
+            EXAMPLE_GRAPHS.push({ label: "Debug", fields: ["debug[all]"] });
+        }
+
+        return GraphConfig.buildExampleResult(EXAMPLE_GRAPHS, graphNames);
+    }
+
     if (!flightLog.isFieldDisabled().MOTORS) {
         EXAMPLE_GRAPHS.push({
             label: "Motors",
@@ -1080,5 +1145,22 @@ GraphConfig.getExampleGraphConfigs = function (flightLog, graphNames) {
         result.push(destGraph);
     }
 
+    return result;
+};
+
+// Shared builder so the RF early-return path above produces identical destGraph
+// shape (label/fields/height + graphNames filter) as the BF path.
+GraphConfig.buildExampleResult = function (exampleGraphs, graphNames) {
+    const result = [];
+    for (const srcGraph of exampleGraphs) {
+        if (graphNames !== undefined && !graphNames.includes(srcGraph.label)) {
+            continue;
+        }
+        result.push({
+            label: srcGraph.label,
+            fields: srcGraph.fields.map((name) => ({ name, color: -1 })),
+            height: srcGraph.height || 1,
+        });
+    }
     return result;
 };

@@ -1,7 +1,14 @@
 import { FlightLogSticks } from "./sticks";
 import { FlightLogParser } from "./flightlog_parser";
 import { FlightLogFieldPresenter } from "./flightlog_fields_presenter";
-import { FlightLogEvent, FLIGHT_LOG_FLIGHT_MODE_NAME, FLIGHT_LOG_DISARM_REASON } from "./flightlog_fielddefs";
+import {
+    FlightLogEvent,
+    FLIGHT_LOG_FLIGHT_MODE_NAME,
+    FLIGHT_LOG_DISARM_REASON,
+    FLIGHT_LOG_GOVSTATES_RF_ACTIVE,
+    FLIGHT_LOG_RESCUE_STATES,
+    FLIGHT_LOG_AIRBORNE_STATES,
+} from "./flightlog_fielddefs";
 import { Craft2D } from "./craft_2d";
 import { Craft3D } from "./craft_3d";
 import { FlightLogAnalyser } from "./graph_spectrum";
@@ -543,6 +550,38 @@ export function FlightLogGrapher(flightLog, graphConfig, canvas, stickCanvas, cr
                 break;
             case FlightLogEvent.SYNC_BEEP:
                 drawEventLine(x, labelY, "Arming beep begins", "rgba(0,0,255,0.75)", 3);
+                break;
+            // Rotorflight state events (ref: rfblackbox/js/grapher.js:544-551).
+            // Numeric codes don't collide with BF events, so BF logs never hit these.
+            case FlightLogEvent.GOVERNOR_STATE:
+                drawEventLine(
+                    x,
+                    labelY,
+                    `GovState: ${FlightLogFieldPresenter.presentEnum(event.data.govState, FLIGHT_LOG_GOVSTATES_RF_ACTIVE)}`,
+                    "rgba(0,0,255,0.75)",
+                    2,
+                );
+                break;
+            case FlightLogEvent.RESCUE_STATE:
+                drawEventLine(
+                    x,
+                    labelY,
+                    `RescueState: ${FlightLogFieldPresenter.presentEnum(event.data.rescueState, FLIGHT_LOG_RESCUE_STATES)}`,
+                    "rgba(0,0,255,0.75)",
+                    2,
+                );
+                break;
+            case FlightLogEvent.AIRBORNE_STATE:
+                drawEventLine(
+                    x,
+                    labelY,
+                    `Airborne: ${FlightLogFieldPresenter.presentEnum(event.data.airborneState, FLIGHT_LOG_AIRBORNE_STATES)}`,
+                    "rgba(255,150,0,0.75)",
+                    2,
+                );
+                break;
+            case FlightLogEvent.CUSTOM_DATA:
+                drawEventLine(x, labelY, `DATA: ${event.data.buffer.join()}`, "rgba(0,133,255,0.5)", 3);
                 break;
             case FlightLogEvent.GTUNE_CYCLE_RESULT:
                 drawEventLine(

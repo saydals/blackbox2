@@ -204,6 +204,7 @@ import FeatureTable from "./FeatureTable.vue";
 import {
     OFF_ON,
     FAST_PROTOCOL,
+    FAST_PROTOCOL_RF_ACTIVE,
     MOTOR_SYNC,
     SERIALRX_PROVIDER,
     ANTI_GRAVITY_MODE,
@@ -225,8 +226,11 @@ import {
     THROTTLE_LIMIT_TYPE,
     FIRMWARE_TYPE_BETAFLIGHT,
     FIRMWARE_TYPE_INAV,
+    FIRMWARE_TYPE_ROTORFLIGHT,
+    FLIGHT_LOG_FEATURES_RF,
 } from "../flightlog_fielddefs";
 import { getDebugModes } from "../../js/utils/debugModes";
+import { getRfDebugModeName } from "../flightlog_fielddefs";
 
 const open = defineModel("open", { type: Boolean, default: false });
 const cols = ref(null);
@@ -252,6 +256,7 @@ const fwType = computed(() => sc.value.firmwareType);
 const fwVer = computed(() => sc.value.firmwareVersion || "0.0.0");
 const isBF = computed(() => fwType.value === FIRMWARE_TYPE_BETAFLIGHT);
 const isINAV = computed(() => fwType.value === FIRMWARE_TYPE_INAV);
+const isRF = computed(() => fwType.value === FIRMWARE_TYPE_ROTORFLIGHT);
 
 function gte(ver) {
     return semver.gte(fwVer.value, ver);
@@ -523,7 +528,11 @@ const generalParams = computed(() => {
         param("Loop Time", fmtVal(s.looptime, 0)),
         param("Gyro Sync", fmtVal(s.gyro_sync_denom, 0)),
         param("PID Denom", fmtVal(s.pid_process_denom, 0)),
-        param("Debug Mode", selectVal(s.debug_mode, getDebugModes(sc.value.apiVersion))),
+        // RF debug_mode indexes into DEBUG_MODE_RF_ACTIVE, not the BF apiVersion table.
+        param(
+            "Debug Mode",
+            isRF.value ? getRfDebugModeName(s.debug_mode) : selectVal(s.debug_mode, getDebugModes(sc.value.apiVersion)),
+        ),
         param("Deadband", fmtVal(s.deadband, 0)),
         param("Yaw Deadband", fmtVal(s.yaw_deadband, 0)),
         param("Vbat Scale", fmtVal(s.vbatscale, 0)),
@@ -774,9 +783,11 @@ const rcSmoothingParams = computed(() => {
 
 const motorParams = computed(() => {
     const s = filteredSc.value;
+    // RF fast_pwm_protocol indexes into the RF table (3단계 FAST_PROTOCOL_RF_ACTIVE).
+    const fastProtocolTable = isRF.value ? FAST_PROTOCOL_RF_ACTIVE : FAST_PROTOCOL;
     return [
         param("Unsynced Fast PWM", selectVal(s.unsynced_fast_pwm, MOTOR_SYNC)),
-        param("Fast PWM Protocol", selectVal(s.fast_pwm_protocol, FAST_PROTOCOL)),
+        param("Fast PWM Protocol", selectVal(s.fast_pwm_protocol, fastProtocolTable)),
         param("Motor PWM Rate", fmtVal(s.motor_pwm_rate, 0)),
         param("DShot BiDir", selectVal(s.dshot_bidir, OFF_ON)),
         param("Motor Output Low", fmtVal(s.motorOutput?.[0], 0)),
@@ -804,6 +815,16 @@ const featuresList = computed(() => {
         return [];
     }
     const value = s.features;
+
+    // Rotorflight feature bitmap (ref: FLIGHT_LOG_FEATURES_RF_4_2/4_3, 3단계).
+    // BF list below untouched.
+    if (isRF.value) {
+        return FLIGHT_LOG_FEATURES_RF.map((name, bit) => ({
+            name,
+            description: "",
+            enabled: !!(value & (1 << bit)),
+        })).filter((f) => f.enabled);
+    }
 
     const features = [
         { bit: 0, name: "RX_PPM", description: "PPM Receiver" },
@@ -881,6 +902,45 @@ const featuresList = computed(() => {
 
 const disabledFieldsList = computed(() => {
     const s = filteredSc.value;
+    // Rotorflight reports an ENABLE bitmap (fields_mask, 5단계) instead of BF's
+    // fields_disabled_mask DISABLE bitmap. List enabled RF fields as-is.
+    if (isRF.value) {
+        if (s.fields_mask == null) {
+            return [];
+        }
+        const rfFields = [
+            "RC Command",
+            "Setpoint",
+            "Mixer",
+            "PIDs",
+            "Attitude",
+            "Unfiltered Gyroscope",
+            "Filtered Gyroscope",
+            "Accelerometer",
+            "Magnetometer",
+            "Altitude",
+            "Battery",
+            "RSSI",
+            "GPS",
+            "RPM",
+            "Motors",
+            "Servos",
+            "VBEC",
+            "VBUS",
+            "Temperature",
+            "ESC",
+            "BEC",
+            "ESC2",
+            "Governor",
+        ];
+        return rfFields
+            .map((name, i) => ({
+                name,
+                description: "",
+                enabled: !!(s.fields_mask & (1 << i)),
+            }))
+            .filter((f) => f.enabled);
+    }
     if (!isBF.value || !gte("4.3.0") || s.fields_disabled_mask == null) {
         return [];
     }

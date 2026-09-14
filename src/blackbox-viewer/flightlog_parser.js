@@ -1682,6 +1682,31 @@ export function FlightLogParser(logData) {
                 lastEvent.data.time = stream.readUnsignedVB();
                 lastEvent.time = lastEvent.data.time;
                 break;
+            // Rotorflight state events (ref: rfblackbox/js/flightlog_parser.js:1540-1548).
+            // Numeric codes (50/51/52/100/101) don't collide with BF events, so BF logs
+            // can never hit these branches.
+            case FlightLogEvent.GOVERNOR_STATE:
+                lastEvent.data.govState = stream.readUnsignedVB();
+                break;
+            case FlightLogEvent.RESCUE_STATE:
+                lastEvent.data.rescueState = stream.readUnsignedVB();
+                break;
+            case FlightLogEvent.AIRBORNE_STATE:
+                lastEvent.data.airborneState = stream.readUnsignedVB();
+                break;
+            case FlightLogEvent.CUSTOM_DATA: {
+                lastEvent.data.length = stream.readByte();
+                lastEvent.data.buffer = [];
+                for (let i = 0; i < lastEvent.data.length; i++) {
+                    lastEvent.data.buffer.push(stream.readByte());
+                }
+                break;
+            }
+            case FlightLogEvent.CUSTOM_STRING: {
+                lastEvent.data.length = stream.readByte();
+                lastEvent.data.string = stream.readString(lastEvent.data.length);
+                break;
+            }
             case FlightLogEvent.FLIGHT_MODE: // get the flag status change
                 lastEvent.data.newFlags = stream.readUnsignedVB();
                 lastEvent.data.lastFlags = stream.readUnsignedVB();
