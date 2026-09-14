@@ -140,6 +140,11 @@ home\betaflight\blackbox2
 - `tools.js:395-400` — `firmwareGreaterOrEqual` 선두에 `if (RF) return true;` + 사유 주석.
 - `stores/log.js:3-16` — import + `FIRMWARE_CLASS_MAP[5]="isRF"` 추가.
 ### 동작 계약 (before → after)
+#### 2-4. 후속 작업자를 위한 파일별 주의점
+- `flightlog_parser.js` — 함수 스코프가 `FlightLogParser(logData)` 클로저 + `this.sysConfig` 공유. `parseFirmwareRevision`은 `HEADER_HANDLERS["Firmware revision"]`에서만 호출(`:1090` 부근). 순서 의존성: `Firmware type` 핸들러가 먼저 와도 `Firmware revision`이 덮어쓰므로 문제없음 (참조도 동일 순서 무관).
+- `tools.js:firmwareGreaterOrEqual` — RF 조기 `return true`이므로, RF 전용 하한(4.2)을 걸고 싶으면 이 함수 시그니처를 바꾸지 말고 호출 측에서 `firmwareType` 분기를 추가할 것.
+- `stores/log.js` — `FIRMWARE_CLASSES`는 CSS 클래스 바인딩(`isRF`)에만 사용. 실제 스타일 정의는 6단계 UI 작업에서 추가 예정.
+
 - `H Firmware revision: Rotorflight 4.6.0` → before `type=0/UNKNOWN, version=0.0.0` / after `type=5, firmware=4.6, patch=0, version=4.6.0`.
 - `H Firmware type: Rotorflight` → before BASEFLIGHT(1) / after ROTORFLIGHT(5).
 - `H Firmware revision: Betaflight 4.5.4 (norevision) STM32F405` → 전후 동일 (`type=3, version=4.5.4`).
