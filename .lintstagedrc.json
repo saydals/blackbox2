@@ -1,0 +1,7 @@
+// Betaflight Blackbox Viewer (standalone) — Vite + Android (Capacitor) only.
+// Original configurator sources used here: src/blackbox-viewer/**, android/ file
+// picker pieces, and the Vite/Nuxt-UI build prep.
+{
+    "check-before-push": "npm run lint",
+    "pre-commit": "npx prettier --write \"src/**/*.{js,vue,ts,css}\""
+}

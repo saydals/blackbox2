@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Vite build output
+dist/
+
+# Capacitor generated files (recreated by `node capacitor.config.generator.mjs` + `npx cap sync`)
+capacitor.config.json
+android/app/src/main/assets/
+android/capacitor-cordova-android-plugins/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
