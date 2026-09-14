@@ -37,7 +37,97 @@ home\betaflight\blackbox2
 - [x] 4단계: `flightlog_fields_presenter.js` RF 이식 (RF friendly names + debug 디코드 RF 분기. BF 출력 바이트 동등 계약)
 - [x] 5단계: `flightlog.js`/`flightlog_parser.js` 계산식 이식 (rcMotorRawToPct 신설, convert RF 분기, isFieldDisabled·isDigitalProtocol·estimateNumMotors RF 분기, fields_mask 파싱)
 - [x] 6단계: 그래프·헤더·이벤트 UI (RF 기본 그래프셋 + HeaderDialog RF 파라미터 + RF 이벤트 렌더. BF 경로 untouched)
-- [ ] 7단계: 브랜딩+빌드 검증 (package.json/applicationId/아이콘/타이틀 Rotorflight, `npm run build`+`android:sync`, RF 샘플 로그 파싱 테스트)
+- [x] 7단계: 브랜딩+빌드 검증 (Rotorflight 별도 앱 ID, `npm run build`+`cap sync`, RF 실로그 E2E `tests/rf_sample_e2e.test.js`)
+
+## 7단계 상세 기록 (브랜딩 + 빌드 검증 + RF 실로그 E2E, 2026-09-15)
+
+### 목표
+
+- 별도 앱으로 분리하는 전면 브랜딩 (사용자 선택: 앱ID까지 변경).
+- RF 실로그(`sample.bbl`, Rotorflight 4.6.0 실측 로그)로 전 단계 E2E 검증.
+- `npm run build` + `lint` + `cap sync` + vitest 전부 통과.
+
+### 참조
+
+- `sample.bbl` (930KB, `H Firmware type:Rotorflight`,
+  `H Firmware revision:Rotorflight 4.6.0 (norevision) MATEKF405TE`,
+  I프레임: setpoint/axisP·I·D·F/attitude/gyroRAW/gyroADC/accADC/motor[0]/
+  servo[0..3]/debug[0..7], S프레임: flightModeFlags/stateFlags/failsafePhase/...,
+  `H fields_mask:50426`, `H debug_mode:14`, `H motor_pwm_protocol:0`,
+  `H gyro_scale:0x3f800000`, `H acc_1G:2048`, `H motor_poles:1`).
+
+### 정확 변경점 (브랜딩 4파일)
+
+- `package.json`: name→`rotorflight-blackbox-viewer`,
+  productName/displayName/title→Rotorflight, description에 `(Rotorflight)` 표기.
+- `capacitor.config.base.json`: appName→`Rotorflight Blackbox Viewer`,
+  appId→`com.rotorflight.blackboxviewer` (별도 앱 분리).
+- `android/app/build.gradle:16`: applicationId 동일 변경
+  (namespace `betaflight.app`는 Java 소스 경로라 유지 — 파일 내 주석과 일치).
+- `index.html:5-6`: title + meta description.
+- 미변경: 아이콘(`images/bf_icon_128.png`, RF 아이콘 자산 없음 — 추후 교체),
+  repository/author (출처 표기 유지).
+
+### E2E 검증 — `tests/rf_sample_e2e.test.js` 신설 (8 테스트, 전부 통과)
+
+1. 펌웨어 식별: `type=5`, `version=4.6.0`.
+2. 헤더 파싱: `fields_mask=50426`, `motor_poles=1`, `debug_mode=14`,
+   `gyroScale=(π/180)×1e-6` (2단계 rad/us 변환), `acc_1G=2048`.
+3. RF 테이블 선택: `DEBUG_MODE_RF_ACTIVE` 85항, `FEATURES_RF` 31항(`[26]=GOVERNOR`),
+   `GOVSTATES_RF_ACTIVE` 10항.
+4. `isFieldDisabled(50426)`: SETPOINT/PID/GYROUNFILT/GYRO/ACC/BATTERY/MOTORS/SERVO=false,
+   RC_COMMANDS/MAGNETOMETER/RSSI/GPS/RPM=true.
+5. 프레임 디코드: `setpoint[0]` °/s, `motor[0]` %, `servo[0]` µs 접미사 확인 +
+   `motor[4]` 부재 확인.
+6. debug 라벨: `debug_mode=14` → RF 테이블명 (원본 `debug[0]` 아님).
+7. 예시 그래프: RF 목록 생성, BF 전용(`Motors (Legacy)`, `GPS Cartesian coords`) 제외,
+   RC_COMMANDS disabled이므로 `RC Command` 제외.
+8. BF 회귀: `configurator/log/log0001.bbl` → `type=3` 유지.
+
+### 검증 (명령+결과)
+
+- `npm run build` — 성공. `npm run lint` — 성공.
+- `npx vitest run tests/rf_sample_e2e.test.js` — 8/8 통과.
+- `node capacitor.config.generator.mjs` + `npx cap sync android` — 성공
+  (`cap sync` 단독은 `capacitor.config.json` 미생성 상태에서 실패하므로
+  generator를 먼저 실행해야 함 — 아래 리스크 2).
+- 주의: 테스트 실행 시 BF `gps_rescue_*` 미지원 헤더 로그가 콘솔에 다량 출력됨
+  (정상 — unknownHeaders 수집 경로).
+
+### 테스트 작성 중 발견·수정 (에러 기록)
+
+- `new FlightLog(data)`만으로는 `getSysConfig()`가 기본값 그대로
+  (`firmwareType=0`, `fields_mask=null`, 필드명 `[]`)라 8개 전부 실패.
+  원인: 생성자는 파싱을 안 하고 `openLog(0)`이 `parseHeader+buildFieldNames+estimate`
+  수행 (`flightlog.js:1349-1369`, `main.js` selectLog 경로).
+  수정: 하네스에 `openLog(0)` 호출 추가 후 8/8 통과.
+  → 후속 작업자 주의: FlightLog 단위 테스트는 반드시 `openLog()` 경유.
+
+### 롤백
+
+- 브랜딩 4파일 revert (기능 코드와 무관). E2E 테스트 파일은 삭제해도 무해.
+- 앱ID를 되돌리면 기존 BF 앱과 동일 ID로 복귀 (설치 충돌 주의).
+
+### 리스크·미결
+
+1. 아이콘 미교체 (`bf_icon_128.png` 그대로). RF 아이콘 자산 확보 후 교체.
+2. `cap sync`는 `capacitor.config.json`(gitignore, generator 산출물)이 있어야 성공.
+   CI에서 `android:sync` 스크립트 사용 시 generator가 선행되므로 문제없음.
+3. RF 실로그 1종(4.6.0, debug_mode=14)으로만 E2E. 4.2/4.3 로그·GovState 이벤트·
+   servo 전ch 로그는 샘플 확보 시 테스트 추가.
+4. craft 3D 헬기 모델·Governor 기본 그래프 편입은 6단계에서 7단계로 인계된 상태로
+   남음 (실로그에 gov* 필드 없음 확인 — 해당 로그 기준 판단 보류).
+
+## 전체 완료 요약 (1-7단계)
+
+- 1단계: 인벤토리·대응표 (코드 변경 없음).
+- 2단계: 펌웨어 식별 (`FIRMWARE_TYPE_ROTORFLIGHT=5`, 정규식·type 분기·gyroScale·isRF).
+- 3단계: fielddefs RF 테이블 (modes/features/fast/debug/gov/rescue/airborne).
+- 4단계: presenter RF 라벨·디코드 (61 모드 테이블 + RF 디코더 2종).
+- 5단계: 계산식 (rcMotorRawToPct·convert·isFieldDisabled·isDigital·estimate·fields_mask).
+- 6단계: 그래프·헤더·이벤트 UI (RF 예시셋·HeaderDialog 4곳·RF 이벤트 렌더).
+- 7단계: 브랜딩 (별도 앱 ID) + E2E 테스트 8/8 + build/lint/sync 전부 통과.
+- 전 단계 BF 불변 계약 유지, 단계별 커밋으로 롤백 가능.
 
 ## 6단계 상세 기록 (그래프·헤더·이벤트 UI, 2026-09-15)
 

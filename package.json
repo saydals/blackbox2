@@ -1,8 +1,8 @@
 {
-  "name": "betaflight-blackbox-viewer",
-  "productName": "Betaflight Blackbox Viewer",
-  "displayName": "Betaflight - Blackbox Flight Log Viewer",
-  "description": "Standalone Blackbox flight log viewer application.",
+  "name": "rotorflight-blackbox-viewer",
+  "productName": "Rotorflight Blackbox Viewer",
+  "displayName": "Rotorflight - Blackbox Flight Log Viewer",
+  "description": "Standalone Blackbox flight log viewer application (Rotorflight).",
   "version": "2026.12.0-alpha",
   "type": "module",
   "main": "index.html",
@@ -28,7 +28,7 @@
     "id": "main-window",
     "min_width": 1024,
     "min_height": 550,
-    "title": "Betaflight Blackbox Viewer"
+    "title": "Rotorflight Blackbox Viewer"
   },
   "repository": {
     "type": "git",

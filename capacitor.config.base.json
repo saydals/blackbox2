@@ -1,5 +1,5 @@
 {
-  "appName": "Betaflight Blackbox Viewer",
-  "appId": "com.betaflight.blackboxviewer",
+  "appName": "Rotorflight Blackbox Viewer",
+  "appId": "com.rotorflight.blackboxviewer",
   "webDir": "dist"
 }

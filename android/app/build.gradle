@@ -13,7 +13,7 @@ android {
     namespace = "betaflight.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.betaflight.blackboxviewer"
+        applicationId "com.rotorflight.blackboxviewer"
         minSdk = rootProject.ext.minSdkVersion
         targetSdk = rootProject.ext.targetSdkVersion
         // Mirrors the Tauri Android scheme in src-tauri/gen/android/app/build.gradle.kts:
