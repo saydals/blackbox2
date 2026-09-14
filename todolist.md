@@ -28,7 +28,7 @@ home\betaflight\blackbox2
 
 - [x] 1단계: 현황 인벤토리 + 파싱 차이 매핑 (코드 변경 없음, 본 문서에 기록) ← 이번 턴 실행
 - [x] 2단계: 펌웨어 식별 계층 (`FIRMWARE_TYPE_ROTORFLIGHT=5`, `parseFirmwareRevision`에 Rotorflight 정규식, `firmwareToApiVersion` RF 분기)
-- [ ] 3단계: `flightlog_fielddefs.js` RF 이식 (RF flight modes 4.2/4.3/4.6, `FEATURES_RF_*`, `DEBUG_MODE_RF_*`, `FAST_PROTOCOL_RF*`, `GOVSTATES`/`RESCUE`/`AIRBORNE`, `MAX_MOTOR_NUMBER` 4, servo 8ch)
+- [x] 3단계: `flightlog_fielddefs.js` RF 이식 (RF flight modes 4.2/4.3/4.6, `FEATURES_RF_*`, `DEBUG_MODE_RF_*`, `FAST_PROTOCOL_RF*`, `GOVSTATES`/`RESCUE`/`AIRBORNE`, `MAX_MOTOR_NUMBER` 4, servo 8ch)
 - [ ] 4단계: `flightlog_fields_presenter.js` RF 이식 (collective/mixer SC/headspeed·tailspeed/gov/BEC·ESC2 friendly names, servo[0..7]·motor 4ch 스케일, WP/웨이포인트·불필요 GPS 항목 제거, debug 라벨 RF 테이블)
 - [ ] 5단계: `flightlog.js`/`flightlog_parser.js` 계산식 이식 (rcCommand 5ch, motor/servo 변환식, RF 전용 헤더, `isFieldDisabled` RF 플래그)
 - [ ] 6단계: 그래프·워크스페이스·UI (RF 기본 워크스페이스 6종: Filter/Governor/Yaw/Pitch/Roll/Power, HeaderDialog RF 파라미터, craft 3D 헬기 표시, GPS/WP UI 정리)
@@ -170,6 +170,45 @@ home\betaflight\blackbox2
 - 이식 목록: `FlightLogEvent`에 `GOVERNOR_STATE:50, RESCUE_STATE:51, AIRBORNE_STATE:52, CUSTOM_DATA:100, CUSTOM_STRING:101` 추가(기존 유지), `FLIGHT_LOG_FLIGHT_MODE_NAME_RF_4_2/4_3/4_6`, `FLIGHT_LOG_FEATURES_RF_4_2/4_3`(+BF 별칭 유지), `FAST_PROTOCOL_RF / RF_4_5`, `DEBUG_MODE_RF_4_2/4_3/4_6`, `FLIGHT_LOG_GOVSTATES_RF / RF_4_6`, `FLIGHT_LOG_RESCUE_STATES`, `FLIGHT_LOG_AIRBORNE_STATES`, `RATES_TYPE`에 `ROTORFLIGHT` 추가, `adjustFieldDefsList` 선두에 RF 분기(참조 `:962-1014` 그대로, BF else-if는 현행 2025.12/2026.x 로직 유지).
 - 금지: `MAX_MOTOR_NUMBER=8→4` 변경 금지 (3단계에서 `MAX_MOTOR_NUMBER_RF=4` 별도 export 후 5단계에서 사용처 분기. 즉시 4로 바꾸면 `flightlog.js:330 estimateNumMotors`의 BF 8모터 로그 카운트가 깨짐).
 - 검증: `npm run build` + `typecheck` + RF 테이블 길이 단언.
+## 3단계 상세 기록 (fielddefs RF 이식, 2026-09-15)
+### 목표
+- `flightlog_fielddefs.js` 단일 파일에만 RF 테이블·상수 추가. BF 기존 export 삭제·개명·재배열 금지. `adjustFieldDefsList`는 RF 분기를 선두에 추가하고 BF 분기는 untouched.
+### 참조
+- `rfblackbox/js/flightlog_fielddefs.js:14` (MOTOR 4), `:18-37` (Event), `:139-238` (RF flight modes 3종), `:269-335` (FEATURES RF 2종), `:356-381` (FAST_PROTOCOL RF 2종), `:526-769` (DEBUG RF 3종), `:886-925` (GOV/RESCUE/AIRBORNE), `:927-935` (RATES_TYPE+ROTORFLIGHT), `:962-1014` (adjust RF 분기).
+### 정확 변경점 (`flightlog_fielddefs.js` 단일 파일)
+- 상수: `MAX_MOTOR_NUMBER=8` 유지 + `MAX_MOTOR_NUMBER_RF=4`, `MAX_SERVO_NUMBER_RF=8` 별도 export (즉시 교체 금지 — `flightlog.js:330 estimateNumMotors` 보호).
+- `FlightLogEvent`: `GOVERNOR_STATE:50, RESCUE_STATE:51, AIRBORNE_STATE:52, CUSTOM_DATA:100, CUSTOM_STRING:101` 추가. BF 키(`AUTOTUNE_*` 10-12, `GTUNE 20`, `TWITCH 40`) 유지 — `grapher.js:533-600`, `flightlog_parser.js:1687-1729` case 참조 보호.
+- `FLIGHT_LOG_FLIGHT_MODE_NAME_RF_4_2/4_3/4_6` 3종 추가.
+- `FLIGHT_LOG_FEATURES_BF` 별칭(=기존 const) + `FLIGHT_LOG_FEATURES_RF_4_2/4_3` + mutable `FLIGHT_LOG_FEATURES_RF=[]` 추가. 참조처럼 const 갈아끼우지 않음 — presenter가 직접 import 중이라 const 유지 필수.
+- `FAST_PROTOCOL_RF/RF_4_5` + mutable `FAST_PROTOCOL_RF_ACTIVE=[]` 추가 (`FAST_PROTOCOL` const 유지).
+- `DEBUG_MODE_RF_4_2/4_3/4_6` + mutable `DEBUG_MODE_RF_ACTIVE=[]` 추가 (공용 `debugModes.js` untouched).
+- `FLIGHT_LOG_GOVSTATES_RF/RF_4_6`, `FLIGHT_LOG_RESCUE_STATES`, `FLIGHT_LOG_AIRBORNE_STATES`, mutable `FLIGHT_LOG_GOVSTATES_RF_ACTIVE` 추가.
+- `RATES_TYPE`에 `"ROTORFLIGHT"` append (index 5, 참조 `:934` 동일 위치. `graph_config.js:598-599`는 `ACTUAL/QUICK` 매칭이라 영향 없음).
+- `adjustFieldDefsList` 선두에 RF 분기 + `return` (참조 게이트 그대로: modes 4.6/4.3/4.2, features 4.3/4.2, debug 4.6/4.3/4.2, gov 4.6/else, fast 4.5/else). RF 4.2 미만은 빈 배열 + 4단계에서 BF 폴백·경고 계약.
+### 의도적 차이 2건
+1. `FLIGHT_LOG_FEATURES/FAST_PROTOCOL`을 mutable로 갈아끼우지 않고 `*_RF_ACTIVE` 별도 뷰를 둠. 본 뷰어는 `flightlog_fields_presenter.js:4`, `flightlog.js:11`, `HeaderDialog.vue:206`이 const를 직접 import하므로 갈아끼우면 BF 로그까지 오염됨. 4단계에서 RF 로그일 때만 RF 뷰 우선 참조.
+2. `FLIGHT_LOG_RESCUE_STATES`/`AIRBORNE`는 `*_RF` 접미 없이 export (참조도 접미 없음 `:913/:922`). BF에 동명 상수 없어 충돌 없음.
+### 동작 계약 (before → after)
+- BF 로그 (`type=3`): RF 분기 스킵 → 기존 BF 분기 그대로 → modes/features/debug 전부 이전과 동일.
+- RF 4.6 (`type=5, "4.6.0"`): modes=RF_4_6 (32항, `[25]=GOVFALLBACK`), `DEBUG_MODE_RF_ACTIVE`=RF_4_6 (85항, `[79]=GOV_MOTOR, [80]=POLAR_RATE`), `FEATURES_RF`=RF_4_3 (31항, `[26]=GOVERNOR`), `GOV_ACTIVE`=RF_4_6 (10항, `[2]=SPOOLUP`), `FAST_RF_ACTIVE`=RF_4_5 (11항, `[9]=CASTLE_LINK, [10]=DISABLED`).
+- RF 4.3/4.2: 대응 버전 테이블로 폴백. RF 4.2 미만: 5개 뷰 빈 배열 → 4단계에서 BF 폴백 + 경고.
+### 검증 (명령+결과, 2026-09-15)
+- `npm run build` — 성공 EXIT 0 (chunk 경고만, 기존과 동일).
+- `npm run typecheck` — 성공, 출력 없음.
+- `npm run lint` — 성공 (eslint + typecheck).
+- 테이블 동등성 (python3 항목별 비교): 12개 테이블 전부 OK — modes 31/29/32항, features 31/31항, debug 68/83/85항, gov 9/10항, fast 10/11항.
+- 인덱스 단언: `FEATURES_RF_4_3[26]=GOVERNOR`, `DEBUG_RF_4_6[79]=GOV_MOTOR, [80]=POLAR_RATE, [84]=USER4`, `GOV_RF_4_6[2]=SPOOLUP` vs `GOV_RF[2]=SPOOLING_UP`, `FAST_RF_4_5[9]=CASTLE_LINK, [10]=DISABLED`, `MODES_RF_4_6[25]=GOVFALLBACK, [31]=USER4` — 전부 OK.
+- BF 불변: `FLIGHT_LOG_FEATURES` 24항, `FAST_PROTOCOL`에 `DSHOT1200` 유지, `RATES_TYPE` 기존 5개 순서 유지 + `ROTORFLIGHT`만 append.
+### 롤백
+- 3단계 커밋 하나만 되돌리면 됨. 부분 되돌리기 시 `adjustFieldDefsList` RF 분기 + `return`만 제거하면 BF 경로로 완전 복귀 (추가 const는 미사용 상태로 남아도 무해).
+### 리스크·미결
+1. `FLIGHT_LOG_FLIGHT_MODE_NAME`이 RF 로그 파싱 시 RF 테이블로 교체되므로, BF→RF 순서로 파일을 열면 잔류 가능. 참조도 동일 구조라 동일 리스크. 증상: 두 번째 로그의 mode 라벨이 이전 것 → `flightlog_parser.js:1829-1830` 호출 여부 확인할 것.
+2. `RATES_TYPE` append로 `HeaderDialog.vue:448` select에 새 항목 노출 — 6단계 UI 정리에서 교체 예정, 그 전까지 표시만 됨.
+3. `FLIGHT_LOG_FEATURES` const vs RF 뷰 이중화: 4단계 presenter가 RF 분기를 빠뜨리면 RF 로그 feature가 BF 이름으로 표시됨. 4단계 검증에서 RF feature 케이스 필수.
+### 다음 단계 인계 (4단계)
+- 범위: `flightlog_fields_presenter.js`만. RF friendly names + debug 라벨 RF 우선 분기.
+- 계약: BF 로그 presenter 출력은 바이트 단위 동등. RF 로그일 때만 `*_RF_ACTIVE` 뷰 + RF 스케일 사용.
+
 
 - RF `gyro_scale` 변환 여부: 참조는 변환 없음(IMU 경로 없음)이나 본 뷰어는 `imu.js:97-108`이 rad/us 기준 → 2단계에서 BF 동일 변환으로 포함 결정.
 - RF 디버그 테이블 위치: 공용 `debugModes.js` 확장 vs fielddefs 내장 → 2단계에서 후자 채택.
