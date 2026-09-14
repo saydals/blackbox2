@@ -129,6 +129,53 @@ home\betaflight\blackbox2
 - 7단계: 브랜딩 (별도 앱 ID) + E2E 테스트 8/8 + build/lint/sync 전부 통과.
 - 전 단계 BF 불변 계약 유지, 단계별 커밋으로 롤백 가능.
 
+## 8단계 (추가): craft 헬기 3D 모델 (2026-09-15)
+
+### 목표
+
+- RF 로그의 craft 표시를 멀티콥터 prop 렌더에서 Bell 헬기 GLTF 모델로 교체.
+- BF 로그는 기존 Craft3D 그대로.
+
+### 참조
+
+- `rfblackbox/js/craft_3d.js:1-68` (68줄, GLTF 로드 + `rotateTo(x,y,z)`),
+  `rfblackbox/resources/models/bell_cw.{gltf,bin,png}` (Blender 산출, 메시 8·노드 21).
+
+### 정확 변경점
+
+- `src/blackbox-viewer/models/bell_cw.{gltf,bin,png}` 복사 (참조 원본 그대로).
+- `src/blackbox-viewer/craft_heli_3d.js` 신설: 참조를 ESM으로 포팅
+  (`three` + `three/examples/jsm/loaders/GLTFLoader.js` import,
+  `?url` 에셋 import, `render(frame, fieldIndexes)` 시그니처는 Craft3D와 동일).
+  - 자세 매핑: `attitude[0..2]` decideg → rad (`×π/1800`),
+    `rotateTo(roll, yaw, pitch)` — 참조의 `(x, wrapper.y, z)` 축 분리 답습.
+    attitude 미로깅 시 마지막 자세 유지 (참조 `if (!this.model) return` 대응).
+  - GLTF 해시 에셋 함정: Vite가 `.gltf`만 해시 복사하고 내부 `bell_cw.bin/png`
+    상대 URI는 깨짐 → JSON을 fetch→URI를 `?url` 번들 URL로 교체→Blob objectURL로
+    로드하는 `loadBellCw()`로 해결. `dist/assets/bell_cw-*.{gltf,bin,png}` 3종 출력 확인.
+- `grapher.js`: import + `craftHeli3D` 변수 + 생성 분기
+  (`firmwareType===5`면 `CraftHeli3D`, else 기존 `Craft3D`) + render/resize 분기
+  (null 가드 — 모델 비동기 로드 전·WebGL 실패 시에도 BF 렌더 경로 보호).
+
+### 검증
+
+- `npm run build` 성공, `npm run lint` 성공.
+- `tests/craft_heli.test.js` 2 테스트 통과 (decideg→rad 변환값, 모델 파일 존재).
+- 전체 `npx vitest run` 10/10 통과 (E2E 8 + heli 2).
+- `npx cap sync android` 성공 (dist 에셋 포함).
+
+### 롤백
+
+- `craft_heli_3d.js` + `models/` 삭제 후 grapher.js 4곳 분기를 원복하면 BF 완전 복귀.
+
+### 리스크·미결
+
+1. 모델 스케일·카메라 거리(참조값 `z=200` 그대로)는 실화면에서 크기 확인 필요.
+   http://localhost:8080/ 에서 sample.bblを開いて craft 표시 확인 요망.
+2. yaw 매핑: RF attitude[2]가 heading 기준인지 compass 기준인지 실화면 회전 방향으로
+   확인할 것. 반대면 `craft_heli_3d.js`의 `rotateTo` 인자 순서만 교체.
+3. 로터 스핀 애니메이션 없음 (참조도 없음 — 정적 자세 모델).
+
 ## 6단계 상세 기록 (그래프·헤더·이벤트 UI, 2026-09-15)
 
 ### 목표

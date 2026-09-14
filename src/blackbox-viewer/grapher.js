@@ -1,6 +1,9 @@
 import { FlightLogSticks } from "./sticks";
 import { FlightLogParser } from "./flightlog_parser";
 import { FlightLogFieldPresenter } from "./flightlog_fields_presenter";
+import { Craft2D } from "./craft_2d";
+import { Craft3D } from "./craft_3d";
+import { CraftHeli3D } from "./craft_heli_3d";
 import {
     FlightLogEvent,
     FLIGHT_LOG_FLIGHT_MODE_NAME,
@@ -8,9 +11,8 @@ import {
     FLIGHT_LOG_GOVSTATES_RF_ACTIVE,
     FLIGHT_LOG_RESCUE_STATES,
     FLIGHT_LOG_AIRBORNE_STATES,
+    FIRMWARE_TYPE_ROTORFLIGHT,
 } from "./flightlog_fielddefs";
-import { Craft2D } from "./craft_2d";
-import { Craft3D } from "./craft_3d";
 import { FlightLogAnalyser } from "./graph_spectrum";
 import { LapTimer } from "./laptimer";
 import { GraphConfig } from "./graph_config";
@@ -74,6 +76,7 @@ export function FlightLogGrapher(flightLog, graphConfig, canvas, stickCanvas, cr
         lastMouseX,
         sticks = null,
         craft3D = null,
+        craftHeli3D = null,
         craft2D = null,
         analyser = null /* define a new spectrum analyser */,
         watermarkLogo; /* Watermark feature */
@@ -831,6 +834,8 @@ export function FlightLogGrapher(flightLog, graphConfig, canvas, stickCanvas, cr
 
         if (craft2D) {
             craft2D.resize(craftSize, craftSize);
+        } else if (craftHeli3D) {
+            craftHeli3D.resize(craftSize, craftSize);
         } else if (craft3D) {
             craft3D.resize(craftSize, craftSize);
         }
@@ -978,7 +983,11 @@ export function FlightLogGrapher(flightLog, graphConfig, canvas, stickCanvas, cr
                 }
 
                 if (options.craftType === "3D") {
-                    craft3D.render(centerFrame, flightLog.getMainFieldIndexes());
+                    if (craftHeli3D) {
+                        craftHeli3D.render(centerFrame, flightLog.getMainFieldIndexes());
+                    } else if (craft3D) {
+                        craft3D.render(centerFrame, flightLog.getMainFieldIndexes());
+                    }
                 } else if (options.craftType === "2D") {
                     craft2D.render(centerFrame, flightLog.getMainFieldIndexes());
                 }
@@ -1093,7 +1102,14 @@ export function FlightLogGrapher(flightLog, graphConfig, canvas, stickCanvas, cr
         if (options.craftType === "3D") {
             if (craftCanvas) {
                 try {
-                    craft3D = new Craft3D(flightLog, craftCanvas, idents.motorColors);
+                    // Rotorflight logs show the Bell heli model instead of the
+                    // multicopter prop renderer (ref: rfblackbox/js/craft_3d.js).
+                    // BF logs keep the existing Craft3D path untouched.
+                    if (flightLog.getSysConfig().firmwareType === FIRMWARE_TYPE_ROTORFLIGHT) {
+                        craftHeli3D = new CraftHeli3D(flightLog, craftCanvas);
+                    } else {
+                        craft3D = new Craft3D(flightLog, craftCanvas, idents.motorColors);
+                    }
                 } catch {
                     //WebGL not supported, fall back to 2D rendering
                     options.craftType = "2D";
