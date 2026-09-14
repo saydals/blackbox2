@@ -76,6 +76,8 @@ export function GraphConfig(graphConfig) {
                                     fieldName,
                                     sysConfig.debug_mode,
                                     apiVersion,
+                                    sysConfig.firmwareType,
+                                    sysConfig.firmwareVersion,
                                 ),
                             },
                             forceNewCurve,
@@ -94,6 +96,8 @@ export function GraphConfig(graphConfig) {
                             field.name,
                             sysConfig.debug_mode,
                             apiVersion,
+                            sysConfig.firmwareType,
+                            sysConfig.firmwareVersion,
                         ),
                     }),
                 );

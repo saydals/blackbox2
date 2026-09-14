@@ -502,6 +502,8 @@ function friendlyName(fieldName) {
         fieldName,
         debugMode,
         props.flightLog?.getSysConfig()?.apiVersion,
+        props.flightLog?.getSysConfig()?.firmwareType,
+        props.flightLog?.getSysConfig()?.firmwareVersion,
     );
 }
 

@@ -749,7 +749,16 @@ export const DEBUG_MODE_RF_4_6 = makeReadOnly([
 ]);
 
 // Mutable RF debug view selected by adjustFieldDefsList (4단계 presenter가 RF 로그에 사용).
+// ESM live binding 함정: `export let`을 재할당하면 기존 import 바인딩도 갱신되지만,
+// Vite/Rollup 번들 환경과 구형 번들러 호환을 위해 presenter는 이 배열을 직접 인덱싱하지 않고
+// getRfDebugModeName() accessor로만 읽는다 (live binding 무관, 항상 최신 참조).
 export let DEBUG_MODE_RF_ACTIVE = [];
+export function getRfDebugModeName(debugModeIndex) {
+    return DEBUG_MODE_RF_ACTIVE[debugModeIndex];
+}
+export function getRfDebugModeAll() {
+    return DEBUG_MODE_RF_ACTIVE;
+}
 
 export const SUPER_EXPO_YAW = makeReadOnly(["OFF", "ON", "ALWAYS"]);
 

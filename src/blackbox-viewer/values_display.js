@@ -58,7 +58,13 @@ export function updateValuesChart(logStore, graphStore, appStore, userSettings) 
 
         for (let i = 0; i < fieldNames.length; i++) {
             values.push({
-                name: FlightLogFieldPresenter.fieldNameToFriendly(fieldNames[i], debugMode, apiVersion),
+                name: FlightLogFieldPresenter.fieldNameToFriendly(
+                    fieldNames[i],
+                    debugMode,
+                    apiVersion,
+                    sysConfig.firmwareType,
+                    sysConfig.firmwareVersion,
+                ),
                 raw: atMost2DecPlaces(frame[i]),
                 decoded: FlightLogFieldPresenter.decodeFieldToFriendly(
                     logStore.flightLog,
@@ -78,7 +84,13 @@ export function updateValuesChart(logStore, graphStore, appStore, userSettings) 
                 continue;
             }
             statRows.push({
-                name: FlightLogFieldPresenter.fieldNameToFriendly(stat.name, debugMode, apiVersion),
+                name: FlightLogFieldPresenter.fieldNameToFriendly(
+                    stat.name,
+                    debugMode,
+                    apiVersion,
+                    sysConfig.firmwareType,
+                    sysConfig.firmwareVersion,
+                ),
                 min: `${FlightLogFieldPresenter.decodeFieldToFriendly(logStore.flightLog, stat.name, stat.min)} (${atMost2DecPlaces(stat.min)})`,
                 max: `${FlightLogFieldPresenter.decodeFieldToFriendly(logStore.flightLog, stat.name, stat.max)} (${atMost2DecPlaces(stat.max)})`,
                 mean: `${FlightLogFieldPresenter.decodeFieldToFriendly(logStore.flightLog, stat.name, stat.mean)} (${atMost2DecPlaces(stat.mean)})`,
