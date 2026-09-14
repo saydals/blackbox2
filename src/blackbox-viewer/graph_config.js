@@ -738,7 +738,7 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
             };
         } else if (
             fieldName.match(/^axisError\[/) || // Gyro, Gyro Scaled, RC Command Scaled and axisError
-            fieldName.match(/^rcCommands\[/) || // These use the same scaling as they are in the
+            fieldName.match(/^rcCommands\[[0-2]\]/) || // roll/pitch/yaw setpoint share gyro scale; [3] is collective/throttle, handled below
             fieldName.match(/^gyroADC\[/) || // same range.
             fieldName.match(/^gyroUnfilt\[/)
         ) {
@@ -754,6 +754,21 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
                 power: 1,
                 MinMax: {
                     min: -100,
+                    max: 100,
+                },
+            };
+        } else if (fieldName === "rcCommands[3]") {
+            // BF: throttle % — computed value already IS percent (BF copy path does
+            // NOT /10: raw throttle 0..~100 maps 1:1). Fixed 0..100 axis.
+            // RF: collective ° — computed value is decideg/10. Auto-scale from the
+            // converted log range so collective deflection fills the chart.
+            if (sysConfig.firmwareType === FIRMWARE_TYPE_ROTORFLIGHT) {
+                return getCurveForMinMaxFields(fieldName);
+            }
+            return {
+                power: 1,
+                MinMax: {
+                    min: 0,
                     max: 100,
                 },
             };

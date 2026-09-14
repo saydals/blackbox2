@@ -71,6 +71,7 @@ export function CraftHeli3D(_flightLog, canvas) {
     scene.add(modelWrapper);
 
     let model = null;
+    let loadError = null;
     const loader = new GLTFLoader();
     loadBellCw(loader).then(
         (gltf) => {
@@ -79,6 +80,7 @@ export function CraftHeli3D(_flightLog, canvas) {
             render();
         },
         (err) => {
+            loadError = err;
             console.log(`Cannot load heli 3D model: ${err}`);
         },
     );
@@ -97,6 +99,17 @@ export function CraftHeli3D(_flightLog, canvas) {
     function render() {
         renderer.render(scene, camera);
     }
+
+    /** Diagnose helper for tests/console: null | Error | "loading" | "ready". */
+    this.getLoadState = function () {
+        if (model) {
+            return "ready";
+        }
+        if (loadError) {
+            return loadError;
+        }
+        return "loading";
+    };
 
     /**
      * Same (frame, fieldIndexes) signature as Craft3D.render so grapher.js

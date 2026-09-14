@@ -91,12 +91,14 @@ const FRIENDLY_FIELD_NAMES = {
     "axisError[1]": "PID Error [pitch]",
     "axisError[2]": "PID Error [yaw]",
 
-    //Virtual field
+    //Virtual field — RF: computed setpoint copy (roll/pitch/yaw °/s + collective °).
+    // BF path computes its own rcCommands from rcCommand; RF copy path writes real
+    // setpoint values (computeScaledRcCommands RF branch). Labels are firmware-neutral.
     "rcCommands[all]": "Setpoints",
     "rcCommands[0]": "Setpoint [roll]",
     "rcCommands[1]": "Setpoint [pitch]",
     "rcCommands[2]": "Setpoint [yaw]",
-    "rcCommands[3]": "Setpoint [throttle]",
+    "rcCommands[3]": "Setpoint [collective]",
 
     "rcCommand[all]": "RC Commands",
     "rcCommand[0]": "RC Command [roll]",

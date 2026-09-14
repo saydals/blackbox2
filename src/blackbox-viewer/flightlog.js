@@ -738,6 +738,9 @@ export function FlightLog(logData) {
     /**
      * Compute scaled RC commands (setpoint in deg/s, throttle in %).
      * For BF 4.0+ copies real setpoint fields; for older versions calculates from rcCommand.
+     * Rotorflight logs real setpoint[0..2] (deg/s) + setpoint[3] (collective decideg)
+     * like modern BF, so it takes the copy path (setpoint[3] is /10 here, matching
+     * decodeFieldRfToFriendly's collective ° display; rcCommands[3] label fix is separate).
      * Writes 4 fields to destFrame starting at fieldIndex.
      * Returns updated fieldIndex.
      */
@@ -750,7 +753,10 @@ export function FlightLog(logData) {
         currentFlightMode,
         sysConfig,
     ) => {
-        if (sysConfig.firmwareType === FIRMWARE_TYPE_BETAFLIGHT && semver.gte(sysConfig.firmwareVersion, "4.0.0")) {
+        if (
+            sysConfig.firmwareType === FIRMWARE_TYPE_ROTORFLIGHT ||
+            (sysConfig.firmwareType === FIRMWARE_TYPE_BETAFLIGHT && semver.gte(sysConfig.firmwareVersion, "4.0.0"))
+        ) {
             for (let axis = 0; axis <= AXIS.YAW; axis++) {
                 destFrame[fieldIndex++] = srcFrame[setpoint[axis]];
             }
