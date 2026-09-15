@@ -13,6 +13,14 @@
                 <UButton
                     variant="ghost"
                     color="neutral"
+                    label="BBL"
+                    icon="i-lucide-file-spreadsheet"
+                    size="xs"
+                    @click="$emit('export-bbl')"
+                />
+                <UButton
+                    variant="ghost"
+                    color="neutral"
                     label="CSV"
                     icon="i-lucide-file-spreadsheet"
                     size="xs"
@@ -97,6 +105,7 @@ import LogFileInput from "./LogFileInput.vue";
 
 defineEmits([
     "files-selected",
+    "export-bbl",
     "export-csv",
     "export-gpx",
     "export-workspaces",

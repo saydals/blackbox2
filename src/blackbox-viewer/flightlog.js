@@ -189,6 +189,14 @@ export function FlightLog(logData) {
         return logIndexes.getLogCount();
     };
 
+    this.getLogBeginOffset = function (index) {
+        return logIndexes.getLogBeginOffset(index);
+    };
+
+    this.getIntraframeDirectory = function (index) {
+        return logIndexes.getIntraframeDirectory(index);
+    };
+
     /**
      * Return a coarse summary of throttle position and events across the entire log.
      */

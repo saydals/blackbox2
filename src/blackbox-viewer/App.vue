@@ -4,16 +4,17 @@
             <div id="blackbox-viewer-root" ref="viewerRootRef" class="blackbox-viewer-root">
                 <WelcomePage @files-selected="onFilesSelected" />
                 <div class="app-navbar">
-                    <AppToolbar
-                        @files-selected="onFilesSelected"
-                        @open-settings="onOpenSettings"
-                        @open-keys="onOpenKeys"
-                        @export-csv="onExportCsv"
-                        @export-gpx="onExportGpx"
-                        @export-workspaces="onExportWorkspaces"
-                        @export-video="appStore.videoExportDialogOpen = true"
-                        @toggle-fullscreen="onToggleFullscreen"
-                    />
+                <AppToolbar
+                    @files-selected="onFilesSelected"
+                    @open-settings="onOpenSettings"
+                    @open-keys="onOpenKeys"
+                    @export-csv="onExportCsv"
+                    @export-gpx="onExportGpx"
+                    @export-bbl="onExportBbl"
+                    @export-workspaces="onExportWorkspaces"
+                    @export-video="appStore.videoExportDialogOpen = true"
+                    @toggle-fullscreen="onToggleFullscreen"
+                />
                 </div>
 
                 <div class="app-main-pane">
@@ -90,6 +91,7 @@
                 <KeysDialog v-model:open="appStore.keysDialogOpen" />
                 <UserSettingsDialog v-model:open="appStore.settingsDialogOpen" @save="onSaveSettings" />
                 <VideoExportDialog v-model:open="appStore.videoExportDialogOpen" />
+                <BblExportDialog v-model:open="appStore.bblExportDialogOpen" />
                 <GraphConfigDialog
                     v-model:open="appStore.graphConfigDialogOpen"
                     :flightLog="logStore.flightLog"
@@ -115,6 +117,7 @@ import { useSettingsStore } from "./stores/settings.js";
 import { useWorkspaceStore } from "./stores/workspace.js";
 import AppToolbar from "./components/AppToolbar.vue";
 import VideoExportDialog from "./components/VideoExportDialog.vue";
+import BblExportDialog from "./components/BblExportDialog.vue";
 import WelcomePage from "./components/WelcomePage.vue";
 import ViewControls from "./components/ViewControls.vue";
 import PlaybackControls from "./components/PlaybackControls.vue";
@@ -201,6 +204,10 @@ function onToggleFullscreen() {
 
 function onExportCsv() {
     appStore.exportCsv?.();
+}
+
+function onExportBbl() {
+    appStore.bblExportDialogOpen = true;
 }
 
 function onExportGpx() {

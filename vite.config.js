@@ -42,7 +42,7 @@ export default defineConfig({
         port: 8080,
         strictPort: true,
         host: "0.0.0.0",
-        allowedHosts: ["localhost"],
+        allowedHosts: true,
         fs: {
             allow: [__dirname],
         },

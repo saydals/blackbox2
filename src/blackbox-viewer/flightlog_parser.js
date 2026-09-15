@@ -596,6 +596,9 @@ export function FlightLogParser(logData) {
      */
     this.onFrameReady = null;
 
+    this.headerBytes = null;
+    this.headerEndOffset = null;
+
     /**
      * Translates the name of a field to the parameter in sysConfig object equivalent
      *
@@ -1855,6 +1858,9 @@ export function FlightLogParser(logData) {
                     break;
             }
         }
+
+        this.headerBytes = new Uint8Array(logData.subarray(startOffset, stream.pos));
+        this.headerEndOffset = stream.pos;
 
         adjustFieldDefsList(this.sysConfig.firmwareType, this.sysConfig.firmwareVersion);
         this.sysConfig.apiVersion = firmwareToApiVersion(this.sysConfig.firmwareType, this.sysConfig.firmwareVersion);

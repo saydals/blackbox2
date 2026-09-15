@@ -1,18 +1,30 @@
 import FileSystem from "../js/FileSystem";
 import { CsvExporter } from "./csv-exporter.js";
 import { GpxExporter } from "./gpx-exporter.js";
+import { BblExporter } from "./bbl-exporter.js";
 
 // NOTE: the blackbox-viewer subsystem is English-only for now, so the picker
 // descriptions are plain strings rather than i18n keys.
 const EXPORT_DESCRIPTIONS = {
     csv: "CSV file",
     gpx: "GPX file",
+    bbl: "BBL file",
 };
 
-function suggestedName(logFilename, fileExtension) {
-    // Strip the source log extension (e.g. "FOO.BBL" -> "FOO") before appending
-    // the export extension.
+export function suggestedName(logFilename, fileExtension, options = {}) {
     const base = (logFilename || "log").replace(/\.[^/.]+$/, "");
+
+    if (fileExtension === "bbl" && options.flightIndex != null && options.startTime != null && options.endTime != null) {
+        const flightNumber = options.flightIndex + 1;
+        const startSec = (options.startTime / 1000000).toFixed(1);
+        const endSec = (options.endTime / 1000000).toFixed(1);
+        let name = `${base}_Flight${flightNumber}_${startSec}s-${endSec}s`;
+        if (options.sampleRate != null && options.originalRate != null && options.sampleRate < options.originalRate) {
+            name += `_${options.sampleRate}Hz`;
+        }
+        return `${name}.bbl`;
+    }
+
     return `${base}.${fileExtension}`;
 }
 
@@ -90,4 +102,25 @@ export function exportSpectrumToCsv(analyser, logFilename, options = {}) {
     }
 
     return saveExport("csv", `${fileName}.csv`, (onSuccess) => analyser.exportSpectrumToCSV(onSuccess, options));
+}
+
+export function exportBbl(flightLog, rawData, logFilename, startTime, endTime, sampleRate) {
+    return saveExport(
+        "bbl",
+        suggestedName(logFilename, "bbl", {
+            flightIndex: flightLog.getLogIndex(),
+            startTime,
+            endTime,
+            sampleRate,
+            originalRate: flightLog.getBlackboxRate(),
+        }),
+        (onSuccess, onFailure) =>
+            BblExporter(flightLog, rawData, startTime, endTime, sampleRate).dump(onSuccess, onFailure),
+    );
+}
+
+export function generateBbl(flightLog, rawData, startTime, endTime, sampleRate) {
+    return new Promise((resolve, reject) => {
+        BblExporter(flightLog, rawData, startTime, endTime, sampleRate).dump(resolve, reject);
+    });
 }

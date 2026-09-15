@@ -32,12 +32,14 @@ export const useAppStore = defineStore("app", () => {
     const settingsDialogOpen = ref(false);
     const keysDialogOpen = ref(false);
     const videoExportDialogOpen = ref(false);
+    const bblExportDialogOpen = ref(false);
 
     // Callbacks registered by main.js (closure-dependent operations)
     const loadFiles = shallowRef(null);
     const newGraphConfig = shallowRef(null);
     const exportCsv = shallowRef(null);
     const exportGpx = shallowRef(null);
+    const exportBbl = shallowRef(null);
     const exportWorkspaces = shallowRef(null);
     const saveUserSettings = shallowRef(null);
     const refreshGraph = shallowRef(null);
@@ -71,10 +73,12 @@ export const useAppStore = defineStore("app", () => {
         settingsDialogOpen,
         keysDialogOpen,
         videoExportDialogOpen,
+        bblExportDialogOpen,
         loadFiles,
         newGraphConfig,
         exportCsv,
         exportGpx,
+        exportBbl,
         exportWorkspaces,
         saveUserSettings,
         refreshGraph,
