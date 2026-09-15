@@ -895,6 +895,29 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
   RF debug 테이블: 61키 전부 동일 PASS).
 - 디코더: 함수 바디 추출 후 정규화(`'`→`"`, 공백제거) 토큰 diff — 의미 차이는 위 BP만.
 
+### BP-6. Heli 3D stick yaw 기본값 반전 — 기본값이 inverted 되어 표시가 반대 방향 (2026-09-15, 커밋 a453d21)
+
+#### 증상
+
+- 3D 헬리콥터 스틱 오버레이에서 yaw가 반대 방향으로 움직임.
+
+#### 원인
+
+- `src/blackbox-viewer/sticks.js`의 yaw 값 계산이 기본값에서 반전(`-rcCommand[2]`)되어 있었음.
+- 참조 `rfblackbox/js/sticks.js:214`는 기본값에서 비반전(`+rcCommand[2]`).
+- 사용자 설정 `stickInvertYaw`의 의미가 역으로 동작: 앱에서 `false`(기본)→반전, 참조에서는 `false`(기본)→비반전.
+
+#### 수정
+
+- `sticks.js:260`: `yawValue` 계산을 `(userSettings.stickInvertYaw ? 1 : -1) * rcCommand[2]`에서 `(userSettings.stickInvertYaw ? -1 : 1) * rcCommand[2]`로 변경.
+  - 기본값(`stickInvertYaw=false`) → `+rcCommand[2]` (비반전, 참조와 동일).
+  - `stickInvertYaw=true` → `-rcCommand[2]` (반전).
+
+#### 검증
+
+- `npm run build` EXIT 0, `npm run lint` EXIT 0.
+- `tests/sticks.test.js` 신규(4 케이스): yaw 기본 비반전(RF/BF), stickInvertYaw 전환, 구버그 정적 검증(`-1:1` 패턴 미존재).
+
 
 ## 버그픽스 1단계 기록 — BP-1 RATES_TYPE off-by-one (2026-09-15, 커밋 eff5397)
 
