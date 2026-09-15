@@ -24,7 +24,7 @@
     "prepare": "husky"
   },
   "window": {
-    "icon": "images/bf_icon_128.png",
+    "icon": "images/rf_icon_128.png",
     "id": "main-window",
     "min_width": 1024,
     "min_height": 550,
@@ -32,9 +32,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "github.com/betaflight/betaflight-configurator"
+    "url": "github.com/rotorflight/rotorflight-blackbox-viewer"
   },
-  "author": "The Betaflight open source project.",
+  "author": "The Rotorflight open source project.",
   "license": "GPL-3.0",
   "engines": {
     "node": "^24.21.0",
