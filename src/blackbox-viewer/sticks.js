@@ -1,5 +1,6 @@
 import { FlightLogParser } from "./flightlog_parser";
 import { FlightLogFieldPresenter } from "./flightlog_fields_presenter";
+import { FIRMWARE_TYPE_ROTORFLIGHT } from "./flightlog_fielddefs";
 import { ExpoCurve } from "./expo";
 import { roundRect } from "./tools";
 import { useSettingsStore } from "./stores/settings.js";
@@ -247,7 +248,16 @@ export function FlightLogSticks(flightLog, rcCommandFields, canvas) {
             }
         }
 
-        const yawValue = (userSettings.stickInvertYaw ? 1 : -1) * rcCommand[2];
+        // Rotorflight uses a collective-pitch axis on the throttle stick instead of a
+        // throttle: raw rcCommand[3] spans ±500 around 0 (ref: rfblackbox/js/sticks.js:224),
+        // whereas Betaflight throttle is 1000..2000 centered at 1500.
+        // (ref: rfblackbox/js/sticks.js:224,238,250,264 — all four stick modes use -rcCommand[3]/500)
+        const isCollective = flightLog.getSysConfig().firmwareType === FIRMWARE_TYPE_ROTORFLIGHT;
+        const verticalAxisPosition = (value) => (isCollective ? -value / 500 : (1500 - value) / 500);
+        // Yaw display polarity: the app convention defaults to non-inverted
+        // (raw +rcCommand[2]), matching the stickInvertYaw setting to flip it.
+        // (ref: rfblackbox/js/sticks.js:214 — default +rcCommand[2])
+        const yawValue = (userSettings.stickInvertYaw ? -1 : 1) * rcCommand[2];
         // map the stick positions based upon selected stick mode (default is mode 2)
 
         //Compute the position of the sticks in the range [-1..1] (left stick x, left stick y, right stick x, right stick y)
@@ -256,7 +266,7 @@ export function FlightLogSticks(flightLog, rcCommandFields, canvas) {
                 stickPositions[0] = yawValue / config.yawStickMax; //Yaw
                 stickPositions[1] = pitchStickCurve.lookup(-rcCommand[1]); //Pitch
                 stickPositions[2] = pitchStickCurve.lookup(rcCommand[0]); //Roll
-                stickPositions[3] = (1500 - rcCommand[3]) / 500; //Throttle
+                stickPositions[3] = verticalAxisPosition(rcCommand[3]); //Throttle (BF) / Collective (RF)
 
                 if (stickLabel != null) {
                     stickLabel[0] = rcCommandLabels[2];
@@ -270,7 +280,7 @@ export function FlightLogSticks(flightLog, rcCommandFields, canvas) {
                 stickPositions[0] = pitchStickCurve.lookup(rcCommand[0]); //Roll
                 stickPositions[1] = pitchStickCurve.lookup(-rcCommand[1]); //Pitch
                 stickPositions[2] = yawValue / config.yawStickMax; //Yaw
-                stickPositions[3] = (1500 - rcCommand[3]) / 500; //Throttle
+                stickPositions[3] = verticalAxisPosition(rcCommand[3]); //Throttle (BF) / Collective (RF)
 
                 if (stickLabel != null) {
                     stickLabel[0] = rcCommandLabels[0];
@@ -282,7 +292,7 @@ export function FlightLogSticks(flightLog, rcCommandFields, canvas) {
                 break;
             case STICK_MODE_4:
                 stickPositions[0] = pitchStickCurve.lookup(rcCommand[0]); //Roll
-                stickPositions[1] = (1500 - rcCommand[3]) / 500; //Throttle
+                stickPositions[1] = verticalAxisPosition(rcCommand[3]); //Throttle (BF) / Collective (RF)
                 stickPositions[2] = yawValue / config.yawStickMax; //Yaw
                 stickPositions[3] = pitchStickCurve.lookup(-rcCommand[1]); //Pitch
 
@@ -296,7 +306,7 @@ export function FlightLogSticks(flightLog, rcCommandFields, canvas) {
                 break;
             default: // Mode 2
                 stickPositions[0] = yawValue / config.yawStickMax; //Yaw
-                stickPositions[1] = (1500 - rcCommand[3]) / 500; //Throttle
+                stickPositions[1] = verticalAxisPosition(rcCommand[3]); //Throttle (BF) / Collective (RF)
                 stickPositions[2] = pitchStickCurve.lookup(rcCommand[0]); //Roll
                 stickPositions[3] = pitchStickCurve.lookup(-rcCommand[1]); //Pitch
 
