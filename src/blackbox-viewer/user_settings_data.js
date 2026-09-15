@@ -115,7 +115,7 @@ export const defaultUserSettings = {
     overdrawSpectrumType: 0,
     psdHeatmapMin: -40,
     psdHeatmapMax: 10,
-    craft: { left: "15%", top: "25%", size: "40%" },
+    craft: { left: "20%", top: "5%", size: "80%" },
     sticks: { left: "75%", top: "20%", size: "30%" },
     analyser: { left: "2%", top: "60%", size: "35%" },
     analyser_legend: { left: "88%", top: "7%", width: "10%" },
