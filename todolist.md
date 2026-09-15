@@ -1067,6 +1067,35 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 - 앱 시작 → 웰컴 다이얼로그 미표시 → sample.bbl(Rotorflight 4.6.0)이 바로
   열린 그래프 화면. 사용자가 이후 다른 로그를 열면 기존처럼 교체 로드됨.
 
+## 버그픽스 5단계 후속 4 — 웰컴 다이얼로그 번쩍임 제거 (2026-09-15, 커밋 77987b4)
+
+### 증상
+
+- 후속 3 구현 후에도 처음 실행 시 웰컴 페이지+오픈 다이얼로그가 잠깐 나타난 뒤
+  sample.bbl이 자동 로드됨 (완전히 생략되지 않음).
+
+### 원인
+
+- 자동 로드가 비동기(fetch + FileReader)인 동안 `hasLog`는 false라서
+  WelcomePage의 `v-if="!logStore.hasLog"`가 참 → 첫 페인트에 다이얼로그가
+  그려진 뒤 로드 완료 시점에야 사라짐.
+
+### 변경점
+
+- `stores/log.js`: `autoLoading` ref 추가(export 포함) — 자동 로드 진행 중 플래그.
+- `main.js` 자동 로드 블록: fetch 시작 **전에 동기적으로**
+  `logStore.autoLoading = true` 설정. bootstrapViewer는 App.vue onMounted에서
+  호출되므로 첫 페인트 전에 플래그가 세워져 다이얼로그가 그려질 기회 자체가 없음.
+  실패 시(catch) `autoLoading = false`로 풀어 수동 오픈 웰컴 페이지 복귀.
+- `components/WelcomePage.vue`: `v-if="!logStore.hasLog && !logStore.autoLoading"`.
+
+### 검증
+
+- `npm run build` EXIT 0, `npm run lint` EXIT 0, `npx vitest run` 12/12 통과.
+- 수동 확인 포인트: 새로고침 시 다이얼로그 없이 바로 그래프 표시,
+  로드 실패 강제 시나리오(에셋 404)에서는 웰컴 페이지 정상 표시.
+
+
 ### 검증
 
 - `npm run build` EXIT 0 — `dist/assets/sample-*.bbl` 번들 확인.
