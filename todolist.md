@@ -1002,6 +1002,26 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 
 ### 주의 (사용자 설정 지속성)
 
+
+## 버그픽스 5단계 후속 — craft 기본값 사용자 지정 (2026-09-15, 커밋 cc12a43)
+
+### 변경점
+
+- `src/blackbox-viewer/user_settings_data.js:118`:
+  `craft: { left: "20%", top: "5%", size: "80%" }`
+  (사용자 요청값: top 5 / left 20 / size 80 — 5단계의 원본 기본값 15/25/40을 대체).
+
+### 동작
+
+- 이 값은 기본값(초기 로드·설정 초기화 시)이며, User Settings 다이얼로그의
+  Craft 위치 입력(0-100 범위)으로 언제든 조정·저장 가능 — 저장 시 localStorage에
+  유지되어 다음 실행에 적용됨.
+- 다이얼로그 입력 범위(0~100) 확인 완료 — 5/20/80 모두 유효.
+
+### 검증
+
+- `npm run build` EXIT 0, `npm run lint` EXIT 0, `npx vitest run` 12/12 통과.
+
 - user settings는 localStorage에 저장되므로, 기존에 설정을 저장한 브라우저/
   WebView에서는 저장된 top:48%가 그대로 적용될 수 있음. User Settings 다이얼로그에서
   기본값 초기화(또는 top을 25로 직접 수정)하면 원본 위치로 나타남.
