@@ -47,6 +47,8 @@ import {
 } from "./playback_controls.js";
 import { PrefStorage } from "./pref_storage.js";
 import { DarkTheme } from "./dark_theme.js";
+// Bundled demo log: auto-opened on startup so the welcome dialog is skipped.
+import sampleBblUrl from "../../sample.bbl?url";
 import { ThemeColors } from "./theme_colors.js";
 import { pinia } from "@/js/pinia_instance.js";
 import { useLogStore } from "./stores/log.js";
@@ -735,6 +737,26 @@ export function bootstrapViewer() {
     }
 
     appStore.loadFiles = loadFiles;
+
+    // Auto-open the bundled sample.bbl on first startup (no welcome dialog).
+    // Normal user-opened logs still work exactly as before — this only runs once
+    // at mount when no log has been opened yet.
+    if (!logStore.hasLog) {
+        (async () => {
+            try {
+                const res = await fetch(sampleBblUrl);
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+                const buffer = await res.arrayBuffer();
+                const file = new File([buffer], "sample.bbl");
+                loadFiles([file]);
+            } catch (err) {
+                console.error("blackbox-viewer: auto-load sample.bbl failed", err);
+            }
+        })();
+    }
+
     appStore.loadLogBuffer = loadLogBuffer;
     // Note: internal newGraphConfig takes `noRedraw` (inverted). Callers pass `redrawChart` (true = redraw).
     appStore.newGraphConfig = (newConfig, redrawChart) => newGraphConfig(newConfig, !redrawChart);
