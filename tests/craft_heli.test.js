@@ -28,10 +28,15 @@ describe("craft heli 3D", () => {
         expect(src).not.toMatch(/rotateTo\(frame\[rollIdx\]/);
     });
 
-    it("모델 파일 3종이 번들에 포함됨", () => {
-        for (const f of ["bell_cw.gltf", "bell_cw.bin", "bell_cw.png"]) {
-            const buf = readFileSync(`src/blackbox-viewer/models/${f}`);
-            expect(buf.length).toBeGreaterThan(1000);
-        }
+    it("모델 파일(heli.glb)이 번들에 포함됨", () => {
+        const buf = readFileSync("src/blackbox-viewer/models/heli.glb");
+        expect(buf.length).toBeGreaterThan(1000);
+        // glTF-binary magic: "glTF" + version 2
+        expect(buf.subarray(0, 4).toString("ascii")).toBe("glTF");
+        expect(buf.readUInt32LE(4)).toBe(2);
+        // 구현이 heli.glb를 로드하는지 정적 검증
+        const src = readFileSync("src/blackbox-viewer/craft_heli_3d.js", "utf8");
+        expect(src).toContain('from "./models/heli.glb?url"');
+        expect(src).not.toContain("bell_cw");
     });
 });

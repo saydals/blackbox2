@@ -1,33 +1,23 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
-// @ts-expect-error Vite ?url asset import for the heli GLTF model
-import bellCwModelUrl from "./models/bell_cw.gltf?url";
-import bellCwBinUrl from "./models/bell_cw.bin?url";
-import bellCwPngUrl from "./models/bell_cw.png?url";
+// @ts-expect-error Vite ?url asset import for the heli GLB model
+import heliModelUrl from "./models/heli.glb?url";
 
-// Rewrite the GLTF's relative buffer/image URIs to the bundled asset URLs,
-// so the loader finds them next to the hashed .gltf in dist/assets/.
-async function loadBellCw(glTFLoader) {
-    const gltfJson = await (await fetch(bellCwModelUrl)).json();
-    if (gltfJson.buffers?.[0]) {
-        gltfJson.buffers[0].uri = new URL(bellCwBinUrl, location.href).href;
-    }
-    if (gltfJson.images?.[0]) {
-        gltfJson.images[0].uri = new URL(bellCwPngUrl, location.href).href;
-    }
-    const blob = new Blob([JSON.stringify(gltfJson)], { type: "model/gltf+json" });
-    const objectUrl = URL.createObjectURL(blob);
+/**
+ * GLB is self-contained (buffers + textures embedded), so unlike the old
+ * gltf+bin+png triple there is no internal-URI rewriting —
+ * Vite's hashed ?url is loaded directly.
+ */
+async function loadHeliModel(glTFLoader) {
     return new Promise((resolve, reject) => {
         glTFLoader.load(
-            objectUrl,
+            heliModelUrl,
             (gltf) => {
-                URL.revokeObjectURL(objectUrl);
                 resolve(gltf);
             },
             undefined,
             (err) => {
-                URL.revokeObjectURL(objectUrl);
                 reject(err);
             },
         );
@@ -36,11 +26,11 @@ async function loadBellCw(glTFLoader) {
 
 /**
  * Rotorflight helicopter 3D craft model (ref: rfblackbox/js/craft_3d.js:1-68,
- * model: rfblackbox/resources/models/bell_cw.* — copied to ./models/).
+ * model: ./models/heli.glb — GLB, self-contained).
  *
  * The multicoptor renderer (craft_3d.js) draws N arms + props from propColors,
  * which is wrong for a single-rotor + tail-rotor heli. This class loads the
- * Bell GLTF model instead and rotates it from the log's attitude[0..2]
+ * heli GLB model instead and rotates it from the log's attitude[0..2]
  * (decidegrees → radians). API mirrors Craft3D (render/resize) so grapher.js
  * can swap it in for Rotorflight logs only.
  */
@@ -72,7 +62,7 @@ export function CraftHeli3D(_flightLog, canvas) {
     let model = null;
     let loadError = null;
     const loader = new GLTFLoader();
-    loadBellCw(loader).then(
+    loadHeliModel(loader).then(
         (gltf) => {
             model = gltf.scene;
             modelWrapper.add(model);
