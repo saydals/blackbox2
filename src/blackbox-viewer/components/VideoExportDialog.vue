@@ -69,6 +69,21 @@ const canStart = computed(
         !probesLoading.value && probeResult.value?.canEncode && estimatedFrames.value > 0 && mode.value === "settings",
 );
 
+const markInTime = computed(() => playbackStore.videoExportInTime);
+const markOutTime = computed(() => playbackStore.videoExportOutTime);
+const hasMarks = computed(() => markInTime.value !== null && markOutTime.value !== null);
+const markRangeText = computed(() => {
+    if (!hasMarks.value) return "Full log (no markers)";
+    const fmt = (t) => {
+        if (t == null) return "—";
+        const sec = (t - (logStore.flightLog?.getMinTime?.() ?? 0)) / 1000000;
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${m}:${String(s).padStart(2, "0")}`;
+    };
+    return `${fmt(markInTime.value)} – ${fmt(markOutTime.value)}`;
+});
+
 async function warmAllProbes() {
     probesLoading.value = true;
     try {
@@ -229,6 +244,9 @@ onUnmounted(cancelExport);
             <div v-if="mode === 'settings'" class="flex flex-col gap-4">
                 <p class="text-sm">
                     Exports the range marked with <kbd>I</kbd> and <kbd>O</kbd>. With no markers, the whole log is used.
+                </p>
+                <p class="text-sm text-muted">
+                    Selected range: {{ markRangeText }}
                 </p>
 
                 <UAlert

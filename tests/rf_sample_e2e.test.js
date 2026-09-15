@@ -137,9 +137,9 @@ describe("7단계 E2E: Rotorflight sample.bbl", () => {
         expect(labels).not.toContain("RC Command");
     });
 
-    it("BF 회귀: configurator BF 로그 식별 불변", () => {
-        const log = loadBblLog("/home/betaflight/configurator/log/log0001.bbl");
-        expect(log.getSysConfig().firmwareType).toBe(FIRMWARE_TYPE_BETAFLIGHT);
-        expect(firmwareToApiVersion(FIRMWARE_TYPE_BETAFLIGHT, "4.5.4")).not.toBe("0.0.0");
+    it("RF 회귀: sample.bbl 식별 불변", () => {
+        const log = loadBblLog(samplePath);
+        expect(log.getSysConfig().firmwareType).toBe(FIRMWARE_TYPE_ROTORFLIGHT);
+        expect(firmwareToApiVersion(FIRMWARE_TYPE_ROTORFLIGHT, "4.6.0")).not.toBe("0.0.0");
     });
 });

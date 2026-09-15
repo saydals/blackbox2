@@ -17,6 +17,10 @@ function getOutsideExportRangeStyle() {
     return "rgba(100, 100, 100, 0.5)"; // Dimming overlay works in both themes
 }
 
+function getSelectedRangeStyle() {
+    return "rgba(120, 120, 120, 0.32)"; // Highlight for the selected export range
+}
+
 function getCursorStyle() {
     return "rgba(255, 64, 64, 0.75)"; // Red cursor works in both themes
 }
@@ -262,19 +266,24 @@ export function SeekBar(canvas) {
                 backgroundContext.stroke();
             }
 
-            // Paint in/out region
-            if (inTime !== false || outTime !== false) {
-                backgroundContext.fillStyle = getOutsideExportRangeStyle();
+            // Paint selected export range (highlighted) instead of dimming the outside
+            if (inTime !== false && outTime !== false) {
+                backgroundContext.fillStyle = getSelectedRangeStyle();
+                const barStartX = (inTime - min) / pixelTimeStep + BAR_INSET;
+                const barEndX = (outTime - min) / pixelTimeStep + BAR_INSET;
+                backgroundContext.fillRect(barStartX, 0, barEndX - barStartX, canvas.height);
+            }
 
-                if (inTime !== false) {
-                    backgroundContext.fillRect(0, 0, (inTime - min) / pixelTimeStep + BAR_INSET, canvas.height);
-                }
-
-                if (outTime !== false) {
-                    const barStartX = (outTime - min) / pixelTimeStep + BAR_INSET;
-
-                    backgroundContext.fillRect(barStartX, 0, canvas.width - barStartX, canvas.height);
-                }
+            // Draw in/out boundary lines in the cached background
+            if (inTime !== false) {
+                const inX = (inTime - min) / pixelTimeStep + BAR_INSET;
+                backgroundContext.fillStyle = getCursorStyle();
+                backgroundContext.fillRect(inX - 0.5, 0, 1, canvas.height);
+            }
+            if (outTime !== false) {
+                const outX = (outTime - min) / pixelTimeStep + BAR_INSET;
+                backgroundContext.fillStyle = getCursorStyle();
+                backgroundContext.fillRect(outX - 0.5, 0, 1, canvas.height);
             }
 
             backgroundValid = true;

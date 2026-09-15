@@ -1192,3 +1192,59 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 - `npm run build` EXIT 0, `npm run lint` EXIT 0, `npx vitest run` 전체 통과.
 - 테이블 동등성: RATES_TYPE 7항목 참조와 JSON 동등 (vm 비교).
 
+
+## 버그픽스 7단계 기록 — BP-7 동영상 내보내기 I/O 마크 (2026-09-15)
+
+### 증상
+
+- 동영상 내보내기 시 선택 구간을 `I`/`O` 키로 지정할 수 있었지만
+  (keyboard_handler.js에 바인딩 존재), 타임라인에 마크 표시가 전혀 없어
+  설정된 구간을 시각적으로 확인할 수 없었다.
+- 툴바에 마크 전용 버튼이 없어 키 없는 환경(Android 등)에서 마크가 불가능했다.
+- 동영상 내보내기 대화상자에 현재 마크된 구간 정보가 표시되지 않았다.
+- 타임라인에서 선택 구간 **바깥**이 회색으로 표시되어 직관적이지 않았다.
+
+### 원인
+
+- `seekbar.js`의 `inTime`/`outTime` 영역은 `getOutsideExportRangeStyle()`
+  (rgba(100,100,100,0.5))로 **바깥**을 밝혔고, 선택 구역 자체는 별도 표시가 없었다.
+- `PlaybackControls.vue`에 Mark 전용 버튼이 없었다.
+- `VideoExportDialog.vue`에 마크 범위 표시가 없었다.
+
+### 변경점
+
+1. **`src/blackbox-viewer/components/PlaybackControls.vue`**:
+   - 기존 Playback 패널 옆에 **Mark 패널** 추가 (3개 버튼):
+     - `←` (i-lucide-skip-back): Mark in — `setVideoInTime(logStore.currentBlackboxTime)`
+     - `○` (i-lucide-circle): Clear mark — `setVideoInTime(null)`, `setVideoOutTime(null)`
+     - `→` (i-lucide-skip-forward): Mark out — `setVideoOutTime(logStore.currentBlackboxTime)`
+   - `video_handler.js`의 `setVideoInTime`/`setVideoOutTime` 함수 직접 호출.
+   - 토글 동작: 동일 위치 재클릭 시 마크 해제 (keyboard_handler.js와 동일 로직).
+
+2. **`src/blackbox-viewer/seekbar.js`**:
+   - `getSelectedRangeStyle()` 추가: `rgba(120,120,120,0.32)` — 선택 구역 하이라이트.
+   - `rebuildBackground()`: 선택 구역(`inTime`~`outTime`)을 `getSelectedRangeStyle()`로
+     채우고, 양 끝에 `getCursorStyle()`(빨간색) 1px 경계선 표시.
+   - 기존 `getOutsideExportRangeStyle()`로 바깥을 밝히던 로직을 제거하고
+     선택 구역 하이라이트로 변경 (반전).
+   - 경계선은 `backgroundContext`에 그려져 dirty-region 캐시와 정확히 동작.
+
+3. **`src/blackbox-viewer/components/VideoExportDialog.vue`**:
+   - `markRangeText` computed 추가: `inTime`~`outTime`을 `m:ss` 형식으로 표시,
+     없으면 "Full log (no markers)".
+   - 설정 탭 최상단에 "Selected range: {{ markRangeText }}" 표시.
+
+### 동작
+
+- 툴바 **Mark** 패널의 ←/○/→ 버튼으로 마크 설정/해제 가능 (터치 환경 지원).
+- `I`/`O` 키도 여전히 동일 동작 (keyboard_handler.js 변경 없음).
+- 타임라인에서 선택 구역이 회색 하이라이트 + 빨간 경계선으로 표시.
+- 동영상 내보내기 대화상자에 현재 선택 구간 시간이 표시됨.
+- 마크가 없으면 `Full log (no markers)`이며 전체 영상이 내보내짐.
+
+### 검증
+
+- `npm run build` EXIT 0, `npm run lint` EXIT 0.
+- `npx vitest run` 전체 통과 (4개 파일, 16 테스트).
+
+

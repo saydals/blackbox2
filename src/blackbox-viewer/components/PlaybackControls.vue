@@ -62,11 +62,41 @@
             />
         </div>
     </div>
+    <div class="toolbar-panel log-playback-panel">
+        <h4>Mark</h4>
+        <div class="flex items-center gap-0.5">
+            <UButton
+                variant="ghost"
+                color="neutral"
+                icon="i-lucide-skip-back"
+                size="xs"
+                title="Mark in (I)"
+                @click="markIn"
+            />
+            <UButton
+                variant="ghost"
+                color="neutral"
+                icon="i-lucide-circle"
+                size="xs"
+                title="Clear mark"
+                @click="clearMark"
+            />
+            <UButton
+                variant="ghost"
+                color="neutral"
+                icon="i-lucide-skip-forward"
+                size="xs"
+                title="Mark out (O)"
+                @click="markOut"
+            />
+        </div>
+    </div>
 </template>
 
 <script setup>
 import { usePlaybackStore } from "../stores/playback.js";
 import { useLogStore } from "../stores/log.js";
+import { setVideoInTime, setVideoOutTime } from "../video_handler.js";
 
 defineEmits([
     "jump-start",
@@ -80,4 +110,19 @@ defineEmits([
 
 const playbackStore = usePlaybackStore();
 const logStore = useLogStore();
+
+function markIn() {
+    const t = logStore.currentBlackboxTime;
+    setVideoInTime(playbackStore.videoExportInTime === t ? null : t);
+}
+
+function markOut() {
+    const t = logStore.currentBlackboxTime;
+    setVideoOutTime(playbackStore.videoExportOutTime === t ? null : t);
+}
+
+function clearMark() {
+    setVideoInTime(null);
+    setVideoOutTime(null);
+}
 </script>
