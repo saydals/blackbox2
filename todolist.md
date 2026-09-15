@@ -1,27 +1,35 @@
-home\betaflight\blackbox2
+개요. 
+
+로터플라이트 앱의 위치는 home\betaflight\rfblackbox ( 또는 저장소에 따라 root\rfblackbox )
+
+브랜치는 2.3.x 를 사용한다. ( 공식저장소 위치와 동일하다 https://github.com/rotorflight/rotorflight-blackbox/tree/RF-2.3.x )
+
+중요 : 로터플라이트 앱을 안드로이드 apk , Vite 빌드를 위해 개조하는것이 목적이다.
+
+개조의 편의성을 위해 이미 빌드가 완성된 BF의 골격을 사용해 내용을 바꿔 RF 전용
+
+블랙박스 뷰어를 만들고 있는 중이다.
+
+home\betaflight\blackbox2 ( 또는 저장소에 따라 root\blackbox2   )
+
 이 디렉토리는 현재 베타플라이트 블랙박스 뷰어이다.
 
 해야할일
-현재 안드로이드 앱 빌드와 vite 빌드를 유지하면서
+현재 안드로이드 앱 빌드와 vite 빌드를 유지하면서 
+
 로터플라이트 블랙박스 뷰어 앱으로 개조해야 함.
-로터플라이트 앱의 위치는 home\betaflight\rfblackbox
 
-무엇을 해야하는지 부터 계획을 세워야한다.
+로터플라이트 앱의 위치는 home\betaflight\rfblackbox ( 또는 저장소에 따라 root\rfblackbox )
 
-사용자가 제일 먼저 생각나는것은 파싱 방법
-베타플라이트에서 분석하는 항목과 로터플라이트에서 분석하는 항목이 다르다.
-베타플라이트 분석 항목을 지우고 로터플라이트 분석항목으로 바꿔야한다.
+중요 1 : 아래 내용은 다양한 AI 가  작업목표를 위해 여러 방법으로 구현한 기록이다.
 
-예를들면 WP 같은 웨이포인트용 항목은 전혀 필요없다.
-반면 베타플라이트에 없는 필수 스와시서보 3개 테일서보 1개 같은것이 필요하다.
+방법이 틀릴수 있으므로 틀리다는 증거가 있으면 수정한다.
 
-또 분석방법도 약간 다르다. 항목 이름이 똑 같더라도 기록방식이 달라서 로터플라이트 블랙박스뷰어가 어떻게 계산해서 보여주는지 알아야한다.
+수정한 내용은 문서 아래에 기록하여 나중에 오류 발견시 수정할 수 있게 한다.
 
-이 문서에 어떤식으로 개조할지 순서를 먼저 작성하고 한단계씩 실행한다.
+중요 2 : 원래의 구조는 BF 였지만 완전히 RF 로 변환하는것이 목표이다.
 
-코드 수정 AI는 각 단계별로 어떤 작업을 했고 나중에 어떤 작업을 해야하는지 자세히 이 문서에 적어놔야
-
-다음 작업시에 문제없이 진행할 수 있다.
+수정의 편의를 위해 일부 BF 구조를 유지 할수 있지만  최종 목표는 BF는 버리고 RF만 지원하는것이다.
 
 ---
 
@@ -408,10 +416,12 @@ RF면 `ConvertFieldRfValue(...)`를 먼저 호출하고 `undefined`가 아닐 �
 ### 정확 변경점 (1/2: 테이블·디코더)
 
 **A. `flightlog_fields_presenter.js:9-13` (import)**
+
 - `FIRMWARE_TYPE_ROTORFLIGHT`, `getRfDebugModeName`, `getRfDebugModeAll`,
   `FLIGHT_LOG_FEATURES_RF` 추가. BF import 삭제·개명 없음.
 
 **B. RF debug 라벨 테이블 `:195-699` + 버전 빌더 `:701-739`**
+
 - `RF_DEBUG_FRIENDLY_FIELD_NAMES_INITIAL` — 참조 `:165-669` 61개 모드 전부 이식
   (따옴표만 `'...'`→`"..."`, prettier 규격). 키·값 문자열은 참조와 1:1.
 - 차이: `let DEBUG_FRIENDLY_FIELD_NAMES=null` 전역 갈아끼우기 대신
@@ -420,6 +430,7 @@ RF면 `ConvertFieldRfValue(...)`를 먼저 호출하고 `undefined`가 아닐 �
   전역 오염 방지 (3단계 리스크 1의 동일 패턴).
 
 **C. RF 필드 디코더 `:1072-1242`**
+
 - `decodeFieldRfToFriendly(flightLog, fieldName, value)` — 참조 `:819-985` 이식.
 - 스케일 계약: `rcCommand[0..3]` /5(%), `[4]` /10(%), `setpoint[0..2]` °/s 그대로,
   `[3]` x0.012(°), `mixer[0..1]` x0.012 / `[2]` x0.024(°) / `[3]` /10(%),
@@ -434,11 +445,13 @@ RF면 `ConvertFieldRfValue(...)`를 먼저 호출하고 `undefined`가 아닐 �
   `features`→**`FLIGHT_LOG_FEATURES_RF`** presentEnum (아래 차이 2).
 
 **D. RF debug 디코더 `:1250-1605`**
+
 - `decodeDebugFieldRfToFriendly(flightLog, fieldName, value)` — 참조 `:987-1345` 이식.
 - 모드명 조회만 참조와 다름: 참조 `DEBUG_MODE[idx]` → 본 `getRfDebugModeName(idx)`
   (accessor, 아래 E). 나머지 40개 case의 스케일·단위 문자열은 참조와 동일.
 
 **E. `flightlog_fielddefs.js:752-761` (accessor 추가 — 3단계 파일에 4단계가 추기)**
+
 - `getRfDebugModeName(i)` / `getRfDebugModeAll()` 추가. `DEBUG_MODE_RF_ACTIVE`
   `export let` 재할당(live binding)은 ESM 규격상 동작하지만 번들러 차이를 피하고
   하네스에서 증명된 함정(아래 리스크 1)을 피하기 위해 presenter는 accessor로만 읽는다.
@@ -448,6 +461,7 @@ RF면 `ConvertFieldRfValue(...)`를 먼저 호출하고 `undefined`가 아닐 �
 ### 정확 변경점 (2/2: 분기·호출부·차이·계약)
 
 **F. BF 경로 분기 2곳 (BF 동작 불변의 핵심)**
+
 - `decodeFieldToFriendly:843-846` — 선두 `if (firmwareType===ROTORFLIGHT) return
   decodeFieldRfToFriendly(...)`. BF는 아래 switch untouched. `flightLog=null`
   호출(values_display statusFlightMode)은 RF 분기 스킵.
@@ -456,6 +470,7 @@ RF면 `ConvertFieldRfValue(...)`를 먼저 호출하고 `undefined`가 아닐 �
   RF일 때만 RF 분기, 그 외(기존 3인자 호출·`undefined`)는 기존 BF 경로 그대로.
 
 **G. 호출부 5곳 (friendlyName에 firmware 전달)**
+
 - `graph_config.js:79-80, 99-100`, `values_display.js:61-67, 87-93`,
   `GraphConfigDialog.vue:505-506` — `sysConfig.firmwareType/firmwareVersion` 추가 전달.
   `graph_spectrum_calc.js:410`(axisError, debugMode 없음)은 변경 불필요.
@@ -791,3 +806,180 @@ RF면 `ConvertFieldRfValue(...)`를 먼저 호출하고 `undefined`가 아닐 �
 - RF `gyro_scale` 변환 여부: 참조는 변환 없음(IMU 경로 없음)이나 본 뷰어는 `imu.js:97-108`이 rad/us 기준 → 2단계에서 BF 동일 변환으로 포함 결정.
 
 - RF 디버그 테이블 위치: 공용 `debugModes.js` 확장 vs fielddefs 내장 → 2단계에서 후자 채택.
+
+## 버그픽스 리스트 (전체 코드 vs 참조 /root/rfblackbox/js 검증, 2026-09-15)
+
+검증 방법: 참조 구현을 vm으로 eval해 전역 테이블 추출, 본 뷰어 ESM export와
+항목별(인덱스 단위) 프로그램 비교. 대상: flightlog_fielddefs.js /
+flightlog_fields_presenter.js(FRIENDLY·RF debug 테이블·decodeFieldRf·
+decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
+
+### BP-1. RATES_TYPE 인덱스 밀림 (off-by-one) — 해석 오류, 수정 필요
+
+- 현재 `flightlog_fielddefs.js:894`:
+  `["BETAFLIGHT","RACEFLIGHT","KISS","ACTUAL","QUICK","ROTORFLIGHT"]` (6개, ROTORFLIGHT=5)
+- 참조 `rfblackbox/js/flightlog_fielddefs.js:927-935`:
+  `["NONE","BETAFLIGHT","RACEFLIGHT","KISS","ACTUAL","QUICK","ROTORFLIGHT"]` (7개, ROTORFLIGHT=6)
+- 영향: RF 로그 `H rates_type:N` 원시값을 1씩 어긋나게 해석
+  (예: 실제 BETAFLIGHT(1) 로그가 NONE? 위치로, ROTORFLIGHT(6)이 QUICK(5) 위치로 표시).
+  `HeaderDialog.vue:453` 표시 및 rates_type 기반 판정 전부 영향.
+  `graph_config.js:602-603`의 `RATES_TYPE.indexOf("ACTUAL"/"QUICK")` 매칭도
+  로그 원시값과 어긋남(BF형 rates만 쓰는 case라 실동작 영향은 없으나 의미상 오류).
+- todolist 767행의 기록 오류: "RATES_TYPE에 ROTORFLIGHT append (index 5, 참조 :934 동일 위치)"
+  는 틀림. 참조에는 `NONE`이 index 0에 있고 ROTORFLIGHT는 index 6이다.
+  787행 "기존 5개 순서 유지 + append" 검증도 참조와의 동등성을 확인하지 못한 검증 누락.
+- 수정안: 선두에 `"NONE"` 삽입해 참조와 동일 7개로 맞출 것. BF 로그가 rates_type을
+  쓰지 않는지(BF에는 rates_type 헤더가 없음) 확인 후 삽입 — BF 불변 계약은 유지됨.
+
+### BP-2. FLIGHT_LOG_FAILSAFE_PHASE_NAME 4개 → 7개 누락 — 필드 항목 불일치
+
+- 현재 `flightlog_fielddefs.js:832`: `["IDLE","RX_LOSS_DETECTED","LANDING","LANDED"]`
+- 참조 `:841`: 위 4개 + `"RX_LOSS_MONITORING","RX_LOSS_RECOVERED","GPS_RESCUE"` (7개)
+- 영향: RF 로그 `failsafePhase` 값 4~6이 `presentEnum`에서 undefined로 표시
+  (`flightlog_fields_presenter.js` decodeFieldRfToFriendly의 failsafePhase case가
+  이 테이블을 그대로 사용). BF 로그는 값 0~3만 사용하므로 BF 불변에는 무영향.
+
+### BP-3. RF 필드 friendly 라벨 누락 + BF 키 오염 + 라벨 해석 오류 2건
+
+- 현황: `flightlog_fields_presenter.js:56`의 `FRIENDLY_FIELD_NAMES`가
+  BF 테이블(+일부 RF 잔재) 그대로이며, 4단계 의도적 차이 3("merge하지 않음")에 따라
+  RF 전용 라벨 테이블이 별도로 존재하지 않음. 그런데 `fieldNameToFriendly:1674`의
+  비디버그 경로는 `FRIENDLY_FIELD_NAMES`를 유일한 소스로 사용하므로
+  (graph_config 라벨·워크스페이스 표시 경로), RF 로그의 아래 필드들이 라벨 없이
+  fieldName 원문으로 표시됨:
+  - RF 전용: `Vbat, Vbec, Vbus, Ibat, EscI, Esc2I, Tmcu, Tesc, Tesc2, Tbec,
+    EscCap, Esc2Cap, EscRPM, Esc2RPM, EscThr, EscPwm, headspeed, tailspeed,
+    setpoint[0..3], mixer[0..3], servo[0..7], attitude[0..2], accADC[0..2],
+    gyroRAW[0..2], axisB, axisO, axisPD, altitude, vario, rcCommand[4]`
+    (참조 `flightlog_fields_presenter.js:7-163` FRIENDLY_FIELD_NAMES에는 전부 존재)
+- BF 잔류 키 오염(참조에 없음, cur에만 있음): `vbatLatest, amperageLatest,
+  accSmooth[0..2], eRPM[0..7], heading[0..2], baroAlt, pitot[0..2],
+  GPS_*` 등 BF 전용 필드명 — RF 로그에서는 절대 나오지 않으므로 무해하지만
+  RF 테이블로 교체 시 정리 대상.
+- 해석 오류 2건 (cur에만 있는 잘못된 RF 라벨):
+  1. `:107 rcCommand[3]: "RC Command [throttle]"` — 참조는 `"RC Command [collective]"`.
+     RF에서 collective(throttle 스틱)는 `rcCommand[3]`이고 별도 `rcCommand[4]`가 throttle.
+     decode 스케일(/5 vs /10)은 참조와 일치하므로 라벨만 틀림.
+  2. `:141 servo[5]: "Servo Tail"` — 참조는 `"Servo [6]"`.
+     참조는 servo 전 채널을 동등 취급하며 tail 특수 라벨은 없음.
+- 수정안: 4단계 의도적 차이 3을 철회하고 참조 FRIENDLY_FIELD_NAMES(RF 123키)를
+  그대로 이식하거나, `FRIENDLY_FIELD_NAMES_RF` 별도 테이블 + fieldNameToFriendly
+  RF 분기에서 우선 참조. BF 키 오염은 BF 로그 라벨 경로와 분리된 테이블이면 자동 해소.
+
+### BP-4. 검증에서 확인된 정상(수정 불필요) 항목 — 참고 기록
+
+- RF 테이블 14종(modes 4.2/4.3/4.6, features 4.2/4.3, FAST_PROTOCOL_RF/4_5,
+  DEBUG_MODE_RF 4.2/4.3/4.6, GOVSTATES_RF/4_6, RESCUE/AIRBORNE, FlightLogEvent
+  GOV/RESCUE/AIRBORNE/CUSTOM 키, MAX_MOTOR_NUMBER_RF=4·MAX_SERVO_NUMBER_RF=8):
+  참조와 1항목 오차 없이 동일 (vm 항목별 비교 PASS).
+- `decodeFieldRfToFriendly` 전 케이스(101 케이스) 스케일·단위: 참조와 등가.
+  `motor[0..3]`은 `FlightLog.rcMotorRawToPct`(value/10)로 참조와 동일.
+- `decodeDebugFieldRfToFriendly` 전 모드(61 모드): 스케일·단위 참조와 등가.
+  차이 2건은 모두 등가 치환: (a) `DEBUG_MODE[idx]`→`getRfDebugModeName(idx)`
+  accessor, (b) ITERM_RELAX/YAW_PRECOMP 게이트에서
+  `firmwareType===ROTORFLIGHT &&` 조건 생략 — 이 함수는 RF 로그에서만 호출되므로
+  의미상 동일하나, 향후 BF 경로에서 재사용될 경우 조건 복원 필요.
+- `flightlog.js` `rcMotorRawToPct`(value/10), `isFieldDisabled` RF 비트맵
+  (RC_COMMAND=0 … SERVO=15, 참조 isFieldEnabled와 동일 매핑), `estimateNumMotors`
+  RF 상한 4: 참조와 일치.
+- features 디코드가 `FLIGHT_LOG_FEATURES`(BF) 아닌 `FLIGHT_LOG_FEATURES_RF`를
+  쓰는 것: 의도된 차이(3단계)로 정상.
+- FlightLogEvent에 BF 키(AUTOTUNE/GTUNE/TWITCH) 남아있음: 의도된 유지(정상).
+
+### 검증 커맨드 재현
+
+- 테이블 비교: vm으로 `/root/rfblackbox/js/flightlog_fielddefs.js` eval 후
+  RF 테이블 17종 JSON 동등 비교 (본 기록 상단 방식).
+- presenter 테이블: 두 파일에서 `{...}` 리터럴을 브레이스 카운트로 추출해 eval 비교
+  (FRIENDLY: refkeys 123 / curkeys 107 / 차이 132항,
+  RF debug 테이블: 61키 전부 동일 PASS).
+- 디코더: 함수 바디 추출 후 정규화(`'`→`"`, 공백제거) 토큰 diff — 의미 차이는 위 BP만.
+
+
+## 버그픽스 1단계 기록 — BP-1 RATES_TYPE off-by-one (2026-09-15, 커밋 eff5397)
+
+### 변경점
+
+- `src/blackbox-viewer/flightlog_fielddefs.js:894`: 선두에 `"NONE"` 삽입.
+  이제 참조와 동일 7개: `NONE(0), BETAFLIGHT(1), RACEFLIGHT(2), KISS(3),
+  ACTUAL(4), QUICK(5), ROTORFLIGHT(6)` — RF 펌웨어 rates_type enum과 1:1 대응.
+
+### 영향 분석
+
+- `HeaderDialog.vue:453` `selectVal(s.rates_type, RATES_TYPE)`: raw 값→이름 매핑이
+  이제 RF 실제 값과 일치 (예: `H rates_type:6` → ROTORFLIGHT).
+- `graph_config.js:601-603`: `RATES_TYPE.indexOf("ACTUAL")=4, "QUICK"=5` —
+  RF 로그의 ACTUAL/QUICK rates가 올바른 커브 스케일을 타게 됨 (수정 전에는
+  인덱스 밀림으로 default 커브가 적용될 수 있었음).
+- BF 로그: BF는 `rates_type` 헤더를 출력하지 않아 영향 없음 (`flightlog_parser.js:720`
+  은 헤더 파싱 목록일 뿐). RATES_TYPE을 값으로 참조하는 곳은 indexOf 2곳뿐이라
+  BF 불변 계약 유지.
+
+## 버그픽스 2단계 기록 — BP-2 FAILSAFE_PHASE 확장 (2026-09-15, 커밋 b07d675)
+
+### 변경점
+
+- `src/blackbox-viewer/flightlog_fielddefs.js:832-840`:
+  `FLIGHT_LOG_FAILSAFE_PHASE_NAME` 4개 → 7개.
+  추가: `RX_LOSS_MONITORING(4), RX_LOSS_RECOVERED(5), GPS_RESCUE(6)` — 참조
+  `rfblackbox/js/flightlog_fielddefs.js:841`과 항목·순서 완전 동일.
+
+### 영향 분석
+
+
+## 버그픽스 3단계 기록 — BP-3 RF friendly 라벨 (2026-09-15, 커밋 4401198)
+
+### 변경점
+
+- `src/blackbox-viewer/flightlog_fields_presenter.js:198`:
+  `FRIENDLY_FIELD_NAMES_RF` 신설 — 참조
+  `rfblackbox/js/flightlog_fields_presenter.js:7-163`의 123키 전량 이식
+  (vm으로 추출한 참조 리터럴을 키 순서 그대로 `"..."` 포맷으로 변환, 수작업 없음).
+  BF 테이블(`FRIENDLY_FIELD_NAMES`)과 별도 유지 — BF 테이블 무수정.
+- `flightlog_fields_presenter.js:1800-1802`: `fieldNameToFriendly`의
+  비디버그 라벨 경로 선두에 RF 우선 분기 추가:
+  `firmwareType===ROTORFLIGHT && FRIENDLY_FIELD_NAMES_RF[fieldName]` → RF 라벨,
+  그 외는 기존 BF 경로 그대로 (미전달 호출·BF 로그 1바이트 불변).
+
+### 해석 오류 2건 해소 (라벨 교체 아닌 테이블 우선순위로)
+
+- `rcCommand[3]`: BF 테이블의 "RC Command [throttle]" 대신 RF 테이블의
+  "RC Command [collective]"가 적용됨 (RF에서 [4]가 throttle — decode 스케일
+  /5 vs /10과도 정합). BF 테이블 항목은 BF 로그용으로 그대로 유지.
+- `servo[5]`: "Servo Tail" 대신 참조와 동일 "Servo [6]" 적용.
+- 참조 라벨은 추출 원문 그대로 사용 (예: mixer[2]="Mixer SY [yaw]",
+  headspeed="Headspeed") — 임의 의역 금지 확인.
+
+### 검증
+
+- `tests/rf_labels.test.js` 신설 (10 케이스): RF 8건(rcCommand[3]/[4],
+  servo[5], Vbat, setpoint[3], EscRPM, headspeed, mixer[2]) + BF 회귀 2건
+  (vbatLatest, accSmooth[0] — 3인자 구호출 형태) 전부 통과.
+- `npm run build` EXIT 0, `npm run lint` EXIT 0,
+  `npx vitest run` 11/11 통과 (E2E 8 + heli 2 + labels 1... 파일 3개).
+
+### 남은 것
+
+- BF 테이블의 RF 잔재 키(rcCommand[3] throttle 등)는 BF 로그용 라벨이라
+  유지 — RF 로그에서는 RF 테이블이 우선하므로 사용자 노출 없음.
+- `graph_spectrum_calc.js:410` axisError 호출은 firmwareType 미전달(BF 경로
+  fallback) — axisError는 BF/RF 공유 라벨이라 무영향, 현행 유지.
+
+- RF 로그 `failsafePhase` 값 4~6이 `presentEnum`에서 이름으로 표시됨
+  (수정 전: undefined). BF 로그는 값 0~3만 사용하므로 무영향 — BF 불변 유지.
+- 이 테이블을 참조하는 곳은 presenter `decodeFieldRfToFriendly`의
+  `failsafePhase` case뿐 (그 외 참조 없음 확인).
+
+### 검증
+
+- `npm run build` EXIT 0, `npm run lint` EXIT 0, `npx vitest run` 전체 통과.
+- 테이블 동등성: 7항목 참조와 JSON 동등 (vm 비교).
+
+- todolist 767행(3단계 기록)의 "index 5, 참조 :934 동일 위치"는 오류였음이
+  버그픽스 리스트 BP-1에서 확정 — 본 수정으로 해소.
+
+### 검증
+
+- `npm run build` EXIT 0, `npm run lint` EXIT 0, `npx vitest run` 전체 통과.
+- 테이블 동등성: RATES_TYPE 7항목 참조와 JSON 동등 (vm 비교).
+
