@@ -23,6 +23,9 @@ export const useLogStore = defineStore("blackboxLog", () => {
     const flightLogDataArray = ref(null);
     const currentBlackboxTime = ref(0);
     const hasLog = ref(false);
+    // True while the startup auto-load of the bundled sample log is in flight,
+    // so the welcome dialog is not painted before the log appears.
+    const autoLoading = ref(false);
     const hasVideo = ref(false);
     const hasGps = computed(() => {
         // activeLogIndex dependency ensures re-evaluation when log index changes
@@ -70,6 +73,7 @@ export const useLogStore = defineStore("blackboxLog", () => {
         flightLogDataArray,
         currentBlackboxTime,
         hasLog,
+        autoLoading,
         hasVideo,
         hasGps,
         videoURL,

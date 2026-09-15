@@ -1,5 +1,5 @@
 <template>
-    <div v-if="!logStore.hasLog" class="welcome-page">
+    <div v-if="!logStore.hasLog && !logStore.autoLoading" class="welcome-page">
         <!-- Dimmed "as though a log were loaded" graph backdrop -->
         <img class="welcome-backdrop" :src="backdropUrl" alt="" aria-hidden="true" />
 

@@ -739,9 +739,12 @@ export function bootstrapViewer() {
     appStore.loadFiles = loadFiles;
 
     // Auto-open the bundled sample.bbl on first startup (no welcome dialog).
-    // Normal user-opened logs still work exactly as before — this only runs once
-    // at mount when no log has been opened yet.
+    // The flag is raised synchronously (bootstrapViewer runs inside onMounted,
+    // before the first paint) so the welcome page never flashes while the
+    // fetch + FileReader pipeline completes. Normal user-opened logs still work
+    // exactly as before — this only runs when no log has been opened yet.
     if (!logStore.hasLog) {
+        logStore.autoLoading = true;
         (async () => {
             try {
                 const res = await fetch(sampleBblUrl);
@@ -753,6 +756,8 @@ export function bootstrapViewer() {
                 loadFiles([file]);
             } catch (err) {
                 console.error("blackbox-viewer: auto-load sample.bbl failed", err);
+                // Release the welcome dialog so the user can open a file manually.
+                logStore.autoLoading = false;
             }
         })();
     }
