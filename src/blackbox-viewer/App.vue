@@ -82,7 +82,7 @@
                     <SeekBarToolbar />
                 </div>
 
-                <StatusBar @goto-bookmark="onGotoBookmark" />
+                <StatusBar class="vue-statusbar" @goto-bookmark="onGotoBookmark" />
 
                 <FieldValuesPanel />
                 <ConfigurationPanel />

@@ -132,6 +132,10 @@ export function updateCanvasSize() {
         const width = canvas.clientWidth;
         const height = canvas.clientHeight;
 
+        if (width === 0 || height === 0) {
+            return;
+        }
+
         graphStore.graph.resize(width, height);
         graphStore.seekBar.resize(canvas.offsetWidth, 50);
         if (logStore.flightLog.hasGpsData()) {

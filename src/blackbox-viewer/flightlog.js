@@ -105,10 +105,11 @@ export function FlightLog(logData) {
 
         if (rawStats.field === undefined) {
             rawStats.field = [];
+            const pField = rawStats.frame.P?.field;
             for (let i = 0; i < rawStats.frame.I.field.length; ++i) {
                 rawStats.field[i] = {
-                    min: Math.min(rawStats.frame.I.field[i].min, rawStats.frame.P.field[i].min),
-                    max: Math.max(rawStats.frame.I.field[i].max, rawStats.frame.P.field[i].max),
+                    min: Math.min(rawStats.frame.I.field[i].min, pField ? pField[i].min : rawStats.frame.I.field[i].min),
+                    max: Math.max(rawStats.frame.I.field[i].max, pField ? pField[i].max : rawStats.frame.I.field[i].max),
                 };
             }
 
@@ -1463,7 +1464,7 @@ export function FlightLog(logData) {
 
     this.getCurrentLogRowsCount = function () {
         const stats = this.getStats(this.getLogIndex());
-        return stats.frame["I"].validCount + stats.frame["P"].validCount;
+        return (stats.frame["I"]?.validCount ?? 0) + (stats.frame["P"]?.validCount ?? 0);
     };
 }
 

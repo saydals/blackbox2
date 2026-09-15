@@ -57,7 +57,7 @@ import { usePlaybackStore, GRAPH_STATE_PAUSED } from "./stores/playback.js";
 import { useWorkspaceStore } from "./stores/workspace.js";
 import { useAppStore } from "./stores/app.js";
 import { useSettingsStore } from "./stores/settings.js";
-import { watch } from "vue";
+import { watch, nextTick } from "vue";
 
 export function bootstrapViewer() {
     // Teardown callbacks, run in reverse on destroy to allow clean re-mount as a tab.
@@ -201,7 +201,9 @@ export function bootstrapViewer() {
 
         renderSelectedLogInfo();
 
-        updateCanvasSize();
+        nextTick(() => {
+            updateCanvasSize();
+        });
 
         setGraphState(GRAPH_STATE_PAUSED);
         setGraphZoom(graphStore.graphZoom, true);
@@ -288,10 +290,6 @@ export function bootstrapViewer() {
 
             logStore.hasLog = true;
 
-            setTimeout(function () {
-                globalThis.dispatchEvent(new Event("resize"));
-            }, 500); // refresh the window size;
-
             selectLog(null);
 
             if (graph) {
@@ -326,10 +324,6 @@ export function bootstrapViewer() {
         playbackStore.currentOffsetCache.index = null;
 
         logStore.hasLog = true;
-
-        setTimeout(function () {
-            globalThis.dispatchEvent(new Event("resize"));
-        }, 500);
 
         selectLog(null);
 

@@ -556,6 +556,7 @@
     display: none;
     position: fixed;
     width: 100%;
+    z-index: 30;
 }
 
 .blackbox-viewer-root:not(.has-log) .vue-statusbar {
