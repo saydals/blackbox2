@@ -1,5 +1,7 @@
 <template>
-    <UButton :size="size" color="primary" :label="label" icon="i-lucide-folder-open" @click="openFilePicker" />
+    <span class="inline-flex cursor-pointer toolbar-menu-item" @click="openFilePicker">
+        <UButton :size="size" color="primary" :label="label" icon="i-lucide-folder-open" />
+    </span>
     <input
         ref="fileInput"
         type="file"

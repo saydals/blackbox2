@@ -10,47 +10,28 @@
 
         <div class="toolbar-group">
             <template v-if="logStore.hasLog">
-                <UButton
-                    variant="ghost"
-                    color="neutral"
-                    label="BBL"
-                    icon="i-lucide-file-spreadsheet"
-                    size="xs"
-                    @click="$emit('export-bbl')"
-                />
-                <UButton
-                    variant="ghost"
-                    color="neutral"
-                    label="CSV"
-                    icon="i-lucide-file-spreadsheet"
-                    size="xs"
-                    @click="$emit('export-csv')"
-                />
-                <UButton
-                    variant="ghost"
-                    color="neutral"
-                    label="GPX"
-                    icon="i-lucide-map-pin"
-                    size="xs"
-                    @click="$emit('export-gpx')"
-                />
-                <UButton
-                    variant="ghost"
-                    color="neutral"
-                    label="Export Workspaces"
-                    icon="i-lucide-file-json"
-                    size="xs"
-                    title="Export your workspace configurations to file"
-                    @click="$emit('export-workspaces')"
-                />
+                <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('export-bbl')">
+                    <UButton variant="ghost" color="neutral" label="BBL" icon="i-lucide-file-spreadsheet" size="xs" />
+                </span>
+                <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('export-csv')">
+                    <UButton variant="ghost" color="neutral" label="CSV" icon="i-lucide-file-spreadsheet" size="xs" />
+                </span>
+                <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('export-gpx')">
+                    <UButton variant="ghost" color="neutral" label="GPX" icon="i-lucide-map-pin" size="xs" />
+                </span>
+                <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('export-workspaces')">
+                    <UButton variant="ghost" color="neutral" label="Export Workspaces" icon="i-lucide-file-json" size="xs" title="Export your workspace configurations to file" />
+                </span>
                 <UTooltip :text="videoExportTitle" :delay-duration="300">
                     <span
                         data-testid="video-export-capability"
-                        class="inline-flex"
+                        class="inline-flex cursor-pointer toolbar-menu-item"
+                        :class="{ 'pointer-events-none': videoExportDisabled }"
                         :role="videoExportDisabled ? 'group' : undefined"
                         :aria-disabled="videoExportDisabled || undefined"
                         :aria-label="videoExportDisabled ? `Export Video unavailable: ${videoExportTitle}` : undefined"
                         :tabindex="videoExportDisabled ? 0 : undefined"
+                        @click="videoExportDisabled ? undefined : $emit('export-video')"
                     >
                         <UButton
                             variant="ghost"
@@ -60,37 +41,27 @@
                             size="xs"
                             :disabled="videoExportDisabled"
                             :class="{ 'pointer-events-none': videoExportDisabled }"
-                            @click="$emit('export-video')"
                         />
                     </span>
                 </UTooltip>
                 <USeparator orientation="vertical" class="h-4" />
             </template>
-            <UButton
-                variant="ghost"
-                color="neutral"
-                icon="i-lucide-settings"
-                size="xs"
-                title="User Settings"
-                @click="$emit('open-settings')"
-            />
-            <UButton
-                variant="ghost"
-                color="neutral"
-                icon="i-lucide-keyboard"
-                size="xs"
-                title="Keyboard Shortcuts"
-                @click="$emit('open-keys')"
-            />
-            <UButton
-                variant="ghost"
-                color="neutral"
-                :icon="graphStore.isFullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
-                size="xs"
-                :title="graphStore.isFullscreen ? 'Exit Full Screen (F)' : 'Full Screen (F)'"
-                :aria-pressed="graphStore.isFullscreen"
-                @click="$emit('toggle-fullscreen')"
-            />
+            <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('open-settings')">
+                <UButton variant="ghost" color="neutral" icon="i-lucide-settings" size="xs" title="User Settings" />
+            </span>
+            <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('open-keys')">
+                <UButton variant="ghost" color="neutral" icon="i-lucide-keyboard" size="xs" title="Keyboard Shortcuts" />
+            </span>
+            <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('toggle-fullscreen')">
+                <UButton
+                    variant="ghost"
+                    color="neutral"
+                    :icon="graphStore.isFullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
+                    size="xs"
+                    :title="graphStore.isFullscreen ? 'Exit Full Screen (F)' : 'Full Screen (F)'"
+                    :aria-pressed="graphStore.isFullscreen"
+                />
+            </span>
         </div>
     </div>
 </template>
@@ -183,5 +154,17 @@ watch(
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.toolbar-menu-item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+.toolbar-menu-item::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    cursor: pointer;
 }
 </style>

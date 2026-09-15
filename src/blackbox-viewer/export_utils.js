@@ -16,10 +16,14 @@ export function suggestedName(logFilename, fileExtension, options = {}) {
 
     if (fileExtension === "bbl" && options.flightIndex != null && options.startTime != null && options.endTime != null) {
         const flightNumber = options.flightIndex + 1;
-        const startSec = (options.startTime / 1000000).toFixed(1);
-        const endSec = (options.endTime / 1000000).toFixed(1);
+        // start/end는 절대 타임스탬프이므로 비행 시작(minTime) 기준 상대 시간으로 표기한다.
+        // 예: flight2_11.0-21.0s_100Hz.bbl
+        const baseTime =
+            options.baseTime != null && Number.isFinite(options.baseTime) ? options.baseTime : options.startTime;
+        const startSec = ((options.startTime - baseTime) / 1000000).toFixed(1);
+        const endSec = ((options.endTime - baseTime) / 1000000).toFixed(1);
         let name = `${base}_Flight${flightNumber}_${startSec}s-${endSec}s`;
-        if (options.sampleRate != null && options.originalRate != null && options.sampleRate < options.originalRate) {
+        if (options.sampleRate != null && Number.isFinite(options.sampleRate)) {
             name += `_${options.sampleRate}Hz`;
         }
         return `${name}.bbl`;
@@ -111,6 +115,7 @@ export function exportBbl(flightLog, rawData, logFilename, startTime, endTime, s
             flightIndex: flightLog.getLogIndex(),
             startTime,
             endTime,
+            baseTime: flightLog.getMinTime(),
             sampleRate,
             originalRate: flightLog.getBlackboxRate(),
         }),

@@ -368,6 +368,8 @@ export function buildBbl(headerText, frames, frameDef, rawData) {
     for (const f of frames) {
         if (f.marker === "I" || f.marker === "P") {
             encodeIFrame(writer, f.frame, frameDef);
+        } else if (f.bytes) {
+            writer.writeBytes(f.bytes);
         } else if (rawData && f.frameStart != null && f.frameSize != null) {
             const bytes = rawData.slice(f.frameStart, f.frameStart + f.frameSize);
             writer.writeBytes(bytes);

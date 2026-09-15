@@ -5,6 +5,7 @@ import { useLogStore } from "../stores/log.js";
 import { usePlaybackStore } from "../stores/playback.js";
 import { useAppStore } from "../stores/app.js";
 import { generateBbl, suggestedName } from "../export_utils.js";
+import { getAvailableSampleRates } from "../bbl-exporter.js";
 
 const open = defineModel("open", { type: Boolean, default: false });
 const appStore = useAppStore();
@@ -33,19 +34,17 @@ const markRangeText = computed(() => {
 });
 
 const originalRate = computed(() => logStore.flightLog?.getBlackboxRate?.() ?? null);
-const downsamplingOptions = computed(() => {
-    const rate = originalRate.value;
-    if (!rate || !Number.isFinite(rate)) {
-        return [];
-    }
-    const candidates = [rate, 1000, 500, 250, 100];
-    const unique = candidates.filter((r, i) => r <= rate && candidates.indexOf(r) === i);
-    return [...new Set(unique)].sort((a, b) => b - a);
-});
+// 다운스케일링만 지원: 원본 이하의 FC 지원 샘플레이트만 표시해 업스케일링을 원천 차단한다.
+// (업스케일링 불가 다이얼로그는 표시하지 않는다.)
+const downsamplingOptions = computed(() => getAvailableSampleRates(originalRate.value));
 
 const selectedRate = computed({
     get() {
-        if (sampleRate.value != null && sampleRate.value <= originalRate.value) {
+        if (
+            sampleRate.value != null &&
+            Number.isFinite(sampleRate.value) &&
+            downsamplingOptions.value.includes(sampleRate.value)
+        ) {
             return sampleRate.value;
         }
         return downsamplingOptions.value[0] ?? originalRate.value;
@@ -84,6 +83,7 @@ async function startExport() {
         flightIndex: flightLog.getLogIndex(),
         startTime,
         endTime,
+        baseTime: flightLog.getMinTime(),
         sampleRate: targetRate,
         originalRate: originalRate.value,
     });
@@ -107,9 +107,8 @@ async function startExport() {
     progress.value = { frame: 0, totalFrames: 100 };
 
     try {
-        if (targetRate > originalRate.value) {
-            throw new Error("Upsampling is not supported.");
-        }
+        // 선택 가능한 Hz만 표시하므로 업스케일링은 발생할 수 없다.
+        // 방어적으로 exporter 내부에서도 Output <= Original 규칙을 강제한다.
         const data = await generateBbl(
             flightLog,
             logStore.flightLogDataArray,
