@@ -950,6 +950,47 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 - 참조 라벨은 추출 원문 그대로 사용 (예: mixer[2]="Mixer SY [yaw]",
   headspeed="Headspeed") — 임의 의역 금지 확인.
 
+
+## 버그픽스 4단계 기록 — BP-4 heli 3D yaw 반전 (2026-09-15, 커밋 20b0993)
+
+### 증상
+
+- Bell 헬기 모델이 원본(rfblackbox)과 yaw 방향이 반대로 움직임.
+
+### 두 가지 가설 검증
+
+1. **그래픽 표시 방향(카메라/미러) 문제?** — 아니오. 참조 `craft_3d.js`와
+   `craft_heli_3d.js`의 카메라(`position.z=200`)·렌더러 설정이 동일하고
+   미러링 요소 없음 → 배제.
+2. **yaw 해석(부호·축 매핑) 문제?** — 예. 이것이 원인.
+
+### 원인 (참조 대비)
+
+- 참조 `rfblackbox/js/grapher.js:76-88`: 축 인덱스 맵
+  `x=attitude[1](pitch), y=attitude[2](yaw), z=attitude[0](roll)`,
+  `:877-881`: 세 축 모두 부호 반전 `rotateTo(-pitch, -yaw, -roll)`.
+  (`craft_3d.js` rotateTo: `model.rotation.x=x, modelWrapper.rotation.y=y,
+  model.rotation.z=z` — 본 뷰어와 동일 구조.)
+- 수정 전 `craft_heli_3d.js`: `rotateTo(+roll, +yaw, +pitch)` —
+  (a) yaw 부호 미반전 → **yaw 반대 방향** (사용자 관찰 증상),
+  (b) pitch/roll이 x/z축에 서로 스왑 (참조는 model.x=pitch, model.z=roll인데
+  roll/pitch가 뒤바뀜) — (a)와 함께 자세가 전반적으로 틀렸음.
+- 8단계 기록 159행의 "rotateTo(roll, yaw, pitch)"도 참조와 다른 잘못된 기록이었음.
+
+### 변경점
+
+- `src/blackbox-viewer/craft_heli_3d.js:128-137`: render()의 rotateTo 호출을
+  참조와 동일하게 `rotateTo(-pitch, -yaw, -roll)`로 수정 (인자 순서+부호).
+  rotateTo 내부(model.x / wrapper.y / model.z)는 참조와 동일하므로 무수정.
+- `tests/craft_heli.test.js`: (1) 참조 매핑(-pitch,-yaw,-roll) 값 단언으로 갱신
+  (roll 90°, pitch -45°, yaw 180° → x=+45°, y=-180°, z=-90°),
+  (2) 구현 소스 정적 검증(음수 매핑 존재 + 구버그 패턴 부재) 추가.
+
+### 검증
+
+- `npm run build` EXIT 0, `npm run lint` EXIT 0, `npx vitest run` 12/12 통과.
+- BF 로그(Craft3D 경로)는 이번 변경 파일과 무관 — 무영향.
+
 ### 검증
 
 - `tests/rf_labels.test.js` 신설 (10 케이스): RF 8건(rcCommand[3]/[4],
