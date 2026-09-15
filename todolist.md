@@ -1018,6 +1018,35 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
   유지되어 다음 실행에 적용됨.
 - 다이얼로그 입력 범위(0~100) 확인 완료 — 5/20/80 모두 유효.
 
+
+## 버그픽스 5단계 후속 2 — 3D 모델을 heli.glb로 교체 (2026-09-15, 커밋 265db4e/eacf8ab)
+
+### 변경점
+
+- `src/blackbox-viewer/models/heli.glb` 추가 (237KB, glTF-binary v2, Khronos 생성).
+- `craft_heli_3d.js`:
+  - bell_cw.{gltf,bin,png} 3파일 import + 내부 URI 재작성(fetch→JSON→Blob) 로직
+    삭제 → `heli.glb` 단일 `?url` import로 교체. GLB는 버퍼·텍스처가 내장되어
+    URI 재작성이 불필요하므로 로더가 크게 단순화됨 (`loadHeliModel`).
+  - 자세 매핑(rotateTo -pitch/-yaw/-roll), render/resize API, 4단계 BP-4 수정분은
+    그대로 유지.
+- `tests/craft_heli.test.js`: 모델 파일 검증을 heli.glb 기준으로 갱신
+  (glTF-binary magic "glTF" + version 2, 크기, 구현이 heli.glb를 import하는지,
+  bell_cw 잔존 부재 정적 검증).
+
+### 검증
+
+- `npm run build` EXIT 0 — `dist/assets/heli-*.glb` 단일 에셋 출력 확인
+  (bell_cw 3파일은 import가 없어 번들에서 제외됨).
+- `npm run lint` EXIT 0, `npx vitest run` 12/12 통과.
+
+### 비고
+
+- bell_cw.{gltf,bin,png} 원본 파일은 `src/blackbox-viewer/models/`에 그대로
+  남아 있음(참조 백업). 번들에는 포함되지 않으므로 APK 용량 영향 없음.
+  원본 복귀 필요 시 import 3줄 + loadBellCw로 되돌리면 됨(4단계 기록의
+  bell URI 재작성 방식 참조).
+
 ### 검증
 
 - `npm run build` EXIT 0, `npm run lint` EXIT 0, `npx vitest run` 12/12 통과.
