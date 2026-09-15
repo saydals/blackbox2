@@ -829,7 +829,15 @@ export const FLIGHT_LOG_FLIGHT_STATE_NAME = makeReadOnly([
     "FIXED_WING",
 ]);
 
-export const FLIGHT_LOG_FAILSAFE_PHASE_NAME = makeReadOnly(["IDLE", "RX_LOSS_DETECTED", "LANDING", "LANDED"]);
+export const FLIGHT_LOG_FAILSAFE_PHASE_NAME = makeReadOnly([
+    "IDLE",
+    "RX_LOSS_DETECTED",
+    "LANDING",
+    "LANDED",
+    "RX_LOSS_MONITORING",
+    "RX_LOSS_RECOVERED",
+    "GPS_RESCUE",
+]);
 
 export const FFT_CALC_STEPS = makeReadOnly([
     "ARM_CFFT_F32",
