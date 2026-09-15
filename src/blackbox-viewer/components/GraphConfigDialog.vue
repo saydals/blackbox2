@@ -291,8 +291,7 @@ import { GraphConfig } from "../graph_config.js";
 import { FlightLogFieldPresenter } from "../flightlog_fields_presenter.js";
 import { coarseMinMaxStep, FINE_MIN_MAX_STEP, needsFineStep } from "../curve_step.js";
 import { useWorkspaceStore } from "../stores/workspace.js";
-import wsRf from "../ws_rf.json";
-
+import { getPresetSource, PRESET_COUNT } from "../workspaces.js";
 const open = defineModel("open", { type: Boolean, default: false });
 
 const props = defineProps({
@@ -345,7 +344,7 @@ function buildWorkspaceFieldRegistry() {
         }
     }
     // 2) 저장된 workspace 슬롯 전체를 조사 (현재 열려 있지 않은 그래프 포함).
-    // pinia store에 없으면(테스트/독립 실행) 번들된 프리셋(ws_rf.json)을 대신 본다.
+    // pinia store에 없으면(테스트/독립 실행) 번들된 프리셋을 대신 본다.
     let slots = [];
     try {
         slots = useWorkspaceStore()?.workspaceGraphConfigs ?? [];
@@ -353,7 +352,7 @@ function buildWorkspaceFieldRegistry() {
         slots = [];
     }
     if (!slots?.length) {
-        slots = wsRf ?? [];
+        slots = Array.from({ length: PRESET_COUNT }, (_, i) => getPresetSource(i));
     }
     for (const slot of slots) {
         for (const g of slot?.graphConfig ?? []) {

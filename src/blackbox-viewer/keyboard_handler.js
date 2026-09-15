@@ -1,6 +1,7 @@
 import { formatTime } from "./tools.js";
 import { GRAPH_MIN_ZOOM } from "./stores/graph.js";
 import { isExportInProgress } from "./playback_controls.js";
+import { isUserSlotId } from "./workspaces.js";
 
 /**
  * Create a keydown event handler for the document.
@@ -63,9 +64,13 @@ export function createKeydownHandler(ctx) {
 
     function handleWorkspaceKey(id, shiftKey) {
         if (!shiftKey) {
+            // 숫자 키 0~9: 사용자 슬롯 전환. 프리셋은 메뉴에서만 선택 (원본과 동일 체계).
             if (workspaceStore.workspaceGraphConfigs[id] != null) {
                 onSwitchWorkspace(workspaceStore.workspaceGraphConfigs, id);
             }
+        } else if (!isUserSlotId(id)) {
+            // 프리셋에는 저장 불가
+            return;
         } else if (workspaceStore.workspaceGraphConfigs[id]) {
             onSaveWorkspace(id, workspaceStore.workspaceGraphConfigs[id].title);
         } else {
@@ -177,7 +182,8 @@ export function createKeydownHandler(ctx) {
         try {
             if (!shifted) {
                 toggleOverrideStatus("graphSmoothOverride");
-            } else if (e.shiftKey) {
+            } else if (e.shiftKey && isUserSlotId(workspaceStore.activeWorkspace)) {
+                // 활성 슬롯이 읽기 전용 프리셋이면 저장하지 않는다
                 onSaveWorkspace(
                     workspaceStore.activeWorkspace,
                     workspaceStore.workspaceGraphConfigs[workspaceStore.activeWorkspace].title,

@@ -12,7 +12,7 @@
                 trailing-icon="i-lucide-chevron-down"
             >
                 <span v-if="activeEntry" class="flex items-center gap-1 truncate">
-                    <span class="opacity-50">{{ workspaceStore.activeWorkspace }}</span>
+                    <span v-if="!activeEntry.preset" class="opacity-50">{{ workspaceStore.activeWorkspace }}</span>
                     <span class="truncate">{{ activeEntry.title }}</span>
                 </span>
                 <span v-else class="opacity-50">No workspace</span>
@@ -21,7 +21,7 @@
             <template #ws-trailing="{ item }">
                 <UIcon v-if="item.wsActive" name="i-lucide-check" class="size-4 text-green-500" />
                 <UButton
-                    v-if="!item.disabled"
+                    v-if="!item.disabled && !item.wsPreset"
                     variant="ghost"
                     color="neutral"
                     size="xs"
@@ -32,6 +32,7 @@
                     @click.stop.prevent="openRename(item.wsId, item.wsTitle)"
                 />
                 <UButton
+                    v-if="!item.wsPreset"
                     variant="ghost"
                     color="neutral"
                     size="xs"
@@ -41,6 +42,9 @@
                     class="opacity-40 hover:opacity-100"
                     @click.stop.prevent="emit('save-workspace', item.wsId, item.wsTitle)"
                 />
+            </template>
+            <template #preset-trailing="{ item }">
+                <UIcon v-if="item.wsActive" name="i-lucide-check" class="size-4 text-green-500" />
             </template>
         </UDropdownMenu>
 
@@ -72,15 +76,16 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { useWorkspaceStore } from "../stores/workspace.js";
+import { USER_SLOT_COUNT, PRESET_BASE, PRESET_COUNT, isPresetId } from "../workspaces.js";
 
-const emit = defineEmits(["switch-workspace", "save-workspace", "rename-workspace", "apply-default"]);
+const emit = defineEmits(["switch-workspace", "save-workspace", "rename-workspace"]);
 
 const workspaceStore = useWorkspaceStore();
 
 const menuOpen = ref(false);
 
-// Shift+W raises showDefaultMenu (keyboard_handler.js). Open the menu — which is where
-// the default workspace presets live — and lower the flag again so a later press re-opens.
+// Shift+W opens the workspace menu (keyboard_handler.js raises the flag,
+// WorkspacePanel lowers it so a later press re-opens).
 watch(
     () => workspaceStore.showDefaultMenu,
     (show) => {
@@ -113,15 +118,19 @@ function commitRename() {
 
 const activeEntry = computed(() => {
     const configs = workspaceStore.workspaceGraphConfigs;
-    return configs?.[workspaceStore.activeWorkspace] ?? null;
+    const entry = configs?.[workspaceStore.activeWorkspace] ?? null;
+    if (!entry) {
+        return null;
+    }
+    return isPresetId(workspaceStore.activeWorkspace) ? { ...entry, preset: true } : entry;
 });
 
 const workspaceItems = computed(() => {
     const configs = workspaceStore.workspaceGraphConfigs;
+    // 상단: 편집·저장 가능한 빈 슬롯 0~9 (숫자 라벨 있음)
     const wsItems = [];
 
-    for (let index = 0; index < 10; index++) {
-        const id = index;
+    for (let id = 0; id < USER_SLOT_COUNT; id++) {
         const entry = configs?.[id];
         const isActive = id === workspaceStore.activeWorkspace;
 
@@ -131,6 +140,7 @@ const workspaceItems = computed(() => {
             disabled: !entry,
             wsId: id,
             wsActive: isActive,
+            wsPreset: false,
             wsTitle: entry?.title || "Unnamed",
             onSelect() {
                 if (entry) {
@@ -140,15 +150,27 @@ const workspaceItems = computed(() => {
         });
     }
 
-    const presetItems = [
-        {
-            label: "Rotorflight Default",
-            icon: "i-lucide-layout-template",
+    // 하단: 이름 있는 프리셋 6개 — 숫자 라벨 없이 이름만, 편집·저장 불가 (원본과 동일)
+    const presetItems = [];
+    for (let i = 0; i < PRESET_COUNT; i++) {
+        const id = PRESET_BASE + i;
+        const entry = configs?.[id];
+        if (!entry) {
+            continue;
+        }
+        const isActive = id === workspaceStore.activeWorkspace;
+        presetItems.push({
+            slot: "preset",
+            label: entry.title,
+            wsId: id,
+            wsActive: isActive,
+            wsPreset: true,
+            wsTitle: entry.title,
             onSelect() {
-                emit("apply-default", 1);
+                emit("switch-workspace", id);
             },
-        },
-    ];
+        });
+    }
 
     return [wsItems, presetItems];
 });

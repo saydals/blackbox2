@@ -59,7 +59,6 @@
                             @switch-workspace="onSwitchWorkspace"
                             @save-workspace="onSaveWorkspace"
                             @rename-workspace="onRenameWorkspace"
-                            @apply-default="onApplyDefaultWorkspace"
                         />
                         <LogPanel />
                     </div>
@@ -341,10 +340,6 @@ function onSaveWorkspace(id, title) {
 
 function onRenameWorkspace(id, title) {
     workspaceStore.renameWorkspace?.(id, title);
-}
-
-function onApplyDefaultWorkspace(index) {
-    workspaceStore.applyDefaultWorkspace?.(index);
 }
 
 function onGotoBookmark(index) {

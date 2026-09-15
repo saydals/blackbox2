@@ -5,7 +5,7 @@ import { FlightLogGrapher } from "./grapher.js";
 import { Configuration, ConfigurationDefaults } from "./configuration.js";
 import { GraphConfig } from "./graph_config.js";
 import { SeekBar } from "./seekbar.js";
-import wsRf from "./ws_rf.json";
+import { createInitialWorkspaces, normalizeWorkspaces, isUserSlotId } from "./workspaces.js";
 import { FlightLog } from "./flightlog.js";
 import { stringTimetoMsec, validate, mouseNotification } from "./tools.js";
 import { restorePenDefaults, changePenSmoothing, changePenZoom, changePenExpo } from "./pen_adjustment.js";
@@ -366,7 +366,11 @@ export function bootstrapViewer() {
     // Retitle a slot in place. Unlike onSaveWorkspace this keeps the stored graphConfig
     // instead of replacing it with whatever happens to be on screen, so renaming a
     // workspace never costs the user the setup they saved into it.
+    // 읽기 전용 프리셋(10~)은 이름바꾸기 불가 (원본과 동일).
     function onRenameWorkspace(id, title) {
+        if (!isUserSlotId(id)) {
+            return;
+        }
         const entry = workspaceStore.workspaceGraphConfigs[id];
         if (!entry) {
             return;
@@ -378,8 +382,11 @@ export function bootstrapViewer() {
         }
     }
 
-    // Save current config
+    // Save current config — 사용자 슬롯(0~9)에만 저장 가능. 프리셋은 읽기 전용.
     function onSaveWorkspace(id, title) {
+        if (!isUserSlotId(id)) {
+            return;
+        }
         workspaceStore.workspaceGraphConfigs[id] = {
             title: title,
             graphConfig: graphStore.graphConfig,
@@ -402,20 +409,25 @@ export function bootstrapViewer() {
 
         graphStore.buildLegendGraphs();
 
-        // initial load of the configuration defaults if we have them
+        // initial load of the configuration defaults if we have them.
+        // 신형 16슬롯: 0~9 사용자 슬롯 + 10~ 프리셋. 구형 저장값은 정규화한다.
         prefs.get("workspaceGraphConfigs", function (item) {
             if (item) {
-                workspaceStore.workspaceGraphConfigs = upgradeWorkspaceFormat(item);
+                workspaceStore.workspaceGraphConfigs = normalizeWorkspaces(upgradeWorkspaceFormat(item));
             } else {
-                workspaceStore.workspaceGraphConfigs = structuredClone(wsRf);
+                workspaceStore.workspaceGraphConfigs = createInitialWorkspaces();
             }
         });
 
         prefs.get("activeWorkspace", function (id) {
-            if (id) {
+            if (Number.isInteger(id) && workspaceStore.workspaceGraphConfigs[id] != null) {
                 workspaceStore.activeWorkspace = id;
-            } else {
+            } else if (workspaceStore.workspaceGraphConfigs[1] != null) {
                 workspaceStore.activeWorkspace = 1;
+            } else {
+                // 사용자 슬롯이 전부 비어 있으면 첫 프리셋으로 시작
+                const firstPreset = workspaceStore.workspaceGraphConfigs.findIndex((s) => s?.title);
+                workspaceStore.activeWorkspace = firstPreset >= 0 ? firstPreset : 10;
             }
         });
 
@@ -721,10 +733,11 @@ export function bootstrapViewer() {
         };
         workspaceStore.saveWorkspace = (id, title) => onSaveWorkspace(id, title);
         workspaceStore.renameWorkspace = (id, title) => onRenameWorkspace(id, title);
+        // 프리셋은 workspace 배열(10~)에 상시 포함되므로 별도 apply 경로가 필요 없다.
         workspaceStore.applyDefaultWorkspace = (index) => {
-            const presets = [null, structuredClone(wsRf)];
-            if (presets[index]) {
-                onSwitchWorkspace(presets[index], 1);
+            const id = 10 + (index - 1);
+            if (workspaceStore.workspaceGraphConfigs[id] != null) {
+                onSwitchWorkspace(workspaceStore.workspaceGraphConfigs, id);
             }
         };
     }

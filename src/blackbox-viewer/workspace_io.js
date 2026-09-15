@@ -1,5 +1,6 @@
 import FileSystem from "../js/FileSystem";
 import { loadHeaderLayout, saveHeaderLayout } from "./header_layout";
+import { normalizeWorkspaces, WORKSPACE_COUNT } from "./workspaces.js";
 
 const WORKSPACE_EXPORT_VERSION = 2;
 
@@ -16,13 +17,14 @@ function isHeaderLayout(value) {
     );
 }
 
-/** @param {unknown} value */
+/** @param {unknown} value — null/empty 슬롯을 허용하는 신형(16슬롯) 검증 */
 function isWorkspaceList(value) {
     return (
         Array.isArray(value) &&
         value.every(
             (workspace) =>
                 workspace === null ||
+                workspace === undefined ||
                 (typeof workspace === "object" && !Array.isArray(workspace) && Array.isArray(workspace.graphConfig)),
         )
     );
@@ -57,7 +59,7 @@ export function upgradeWorkspaceFormat(oldFormat) {
         }
     });
 
-    return newFormat;
+    return normalizeWorkspaces(newFormat);
 }
 
 export async function saveWorkspaces(workspaceGraphConfigs, file) {
@@ -145,6 +147,10 @@ export async function loadWorkspaces(file, workspaceStore, onSwitchWorkspace) {
     if (isLegacy) {
         globalThis.alert("Old Workspace format. Upgrading...");
         tmp = upgradeWorkspaceFormat(tmp);
+    }
+    // 구형 파일(10슬롯 이하)은 16슬롯 체계로 정규화한다. 16슬롯 신형은 그대로 둔다.
+    if (Array.isArray(tmp) && tmp.length !== WORKSPACE_COUNT) {
+        tmp = normalizeWorkspaces(tmp);
     }
     workspaceStore.workspaceGraphConfigs = tmp;
     onSwitchWorkspace(workspaceStore.workspaceGraphConfigs, 1);
