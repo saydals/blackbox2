@@ -11,10 +11,10 @@ import bellCwPngUrl from "./models/bell_cw.png?url";
 async function loadBellCw(glTFLoader) {
     const gltfJson = await (await fetch(bellCwModelUrl)).json();
     if (gltfJson.buffers?.[0]) {
-        gltfJson.buffers[0].uri = bellCwBinUrl;
+        gltfJson.buffers[0].uri = new URL(bellCwBinUrl, location.href).href;
     }
     if (gltfJson.images?.[0]) {
-        gltfJson.images[0].uri = bellCwPngUrl;
+        gltfJson.images[0].uri = new URL(bellCwPngUrl, location.href).href;
     }
     const blob = new Blob([JSON.stringify(gltfJson)], { type: "model/gltf+json" });
     const objectUrl = URL.createObjectURL(blob);
@@ -50,11 +50,10 @@ export function CraftHeli3D(_flightLog, canvas) {
         alpha: true,
         antialias: true,
     });
-    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     const scene = new THREE.Scene();
 
-    const camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
     // move the camera away from the model
     camera.position.z = 200;
     scene.add(camera);
@@ -127,14 +126,22 @@ export function CraftHeli3D(_flightLog, canvas) {
         }
 
         const degToRad = Math.PI / 1800; // decideg → rad
-        rotateTo(frame[rollIdx] * degToRad, frame[yawIdx] * degToRad, frame[pitchIdx] * degToRad);
+        // ref grapher.js:76-88, 877-881 — 축 매핑 x=attitude[1](pitch), y=attitude[2](yaw),
+        // z=attitude[0](roll)이고 세 축 모두 부호 반전(-) 후 rotateTo(x, y, z).
+        // 이전 구현(rotateTo(roll, +yaw, pitch))은 yaw 방향이 원본과 반대였고
+        // pitch/roll 축도 서로 뒤바뀌어 있었다.
+        rotateTo(
+            -frame[pitchIdx] * degToRad,
+            -frame[yawIdx] * degToRad,
+            -frame[rollIdx] * degToRad,
+        );
     };
 
     this.resize = function (width, height) {
         if (canvas.width !== width || canvas.height !== height) {
             canvas.width = width;
             canvas.height = height;
-            renderer.setSize(width, height);
+            renderer.setViewport(0, 0, width, height);
             camera.aspect = width / height;
             camera.updateProjectionMatrix();
             render();
