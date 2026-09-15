@@ -979,6 +979,38 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 
 ### 변경점
 
+## 버그픽스 5단계 기록 — BP-5 craft overlay 위치 (2026-09-15, 커밋 7ca38f6)
+
+### 증상
+
+- 3D 헬기 overlay가 원본은 좌측 상단인데 현재 앱은 좌측 중단에 나타남.
+
+### 원인
+
+- 기본 user settings의 craft.top 값 차이.
+  - 원본 `rfblackbox/js/user_settings_dialog.js:66-70`:
+    `craft: { left:'15%', top:'25%', size:'40%' }`
+  - 현재 `src/blackbox-viewer/user_settings_data.js:118`:
+    `craft: { left:'15%', top:'48%', size:'40%' }` ← 유일한 차이
+- 배치 계산식(`grapher.js:833-852`, `craft.left/top % − size/2`)은 원본
+  `grapher.js:735-753`과 동일 → 코드 로직 문제 아님, 기본값 문제.
+
+### 변경점
+
+- `src/blackbox-viewer/user_settings_data.js:118`: `top: "48%"` → `"25%"`.
+  left/size는 원본과 동일하므로 무수정.
+
+### 주의 (사용자 설정 지속성)
+
+- user settings는 localStorage에 저장되므로, 기존에 설정을 저장한 브라우저/
+  WebView에서는 저장된 top:48%가 그대로 적용될 수 있음. User Settings 다이얼로그에서
+  기본값 초기화(또는 top을 25로 직접 수정)하면 원본 위치로 나타남.
+
+### 검증
+
+- `npm run build` EXIT 0, `npm run lint` EXIT 0, `npx vitest run` 12/12 통과.
+
+
 - `src/blackbox-viewer/craft_heli_3d.js:128-137`: render()의 rotateTo 호출을
   참조와 동일하게 `rotateTo(-pitch, -yaw, -roll)`로 수정 (인자 순서+부호).
   rotateTo 내부(model.x / wrapper.y / model.z)는 참조와 동일하므로 무수정.
