@@ -120,8 +120,8 @@ const workspaceItems = computed(() => {
     const configs = workspaceStore.workspaceGraphConfigs;
     const wsItems = [];
 
-    for (let index = 1; index < 11; index++) {
-        const id = index % 10;
+    for (let index = 0; index < 10; index++) {
+        const id = index;
         const entry = configs?.[id];
         const isActive = id === workspaceStore.activeWorkspace;
 
@@ -142,7 +142,7 @@ const workspaceItems = computed(() => {
 
     const presetItems = [
         {
-            label: "Preset: Rotorflight Default",
+            label: "Rotorflight Default",
             icon: "i-lucide-layout-template",
             onSelect() {
                 emit("apply-default", 1);
