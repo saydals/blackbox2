@@ -1042,6 +1042,41 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 
 ### 비고
 
+
+## 버그픽스 5단계 후속 3 — 시작 시 sample.bbl 자동 오픈 (2026-09-15, 커밋 338449a)
+
+### 요구
+
+- "Open a flight log" 웰컴 다이얼로그를 생략하고, 시작하자마자 `sample.bbl`이
+  열린 상태로 시작할 것.
+
+### 변경점
+
+- `src/blackbox-viewer/main.js:50-51`: `sample.bbl`을 `?url` 에셋으로 import
+  (930KB → 빌드 시 `dist/assets/sample-*.bbl`로 번들).
+- `main.js:741-758`: 그래퍼 초기화 후 `loadFiles` 등록 직후 자동 로드 블록 추가.
+  - `logStore.hasLog`가 false(로그 미개시)일 때만 실행 — 사용자가 연 로그가
+    있으면 절대 덮어쓰지 않음.
+  - `fetch(sampleBblUrl)` → ArrayBuffer → `new File([buffer], "sample.bbl")` →
+    기존 `loadFiles([file])` 경로 재사용 (FileReader 로드 경로와 동일하므로
+    로그 파싱·sysconfig·선택 UI 전부 기존 동작 그대로).
+  - 실패 시 콘솔 에러만 남기고 웰컴 페이지로 정상 폴백 (File API 미지원 등).
+
+### 동작
+
+- 앱 시작 → 웰컴 다이얼로그 미표시 → sample.bbl(Rotorflight 4.6.0)이 바로
+  열린 그래프 화면. 사용자가 이후 다른 로그를 열면 기존처럼 교체 로드됨.
+
+### 검증
+
+- `npm run build` EXIT 0 — `dist/assets/sample-*.bbl` 번들 확인.
+- `npm run lint` EXIT 0, `npx vitest run` 12/12 통과.
+
+### 비고
+
+- sample.bbl 용량(930KB)만큼 APK/dist가 커짐. 데모 로그 제거 필요 시
+  main.js의 import 1줄 + 자동 로드 블록 삭제만으로 복귀.
+
 - bell_cw.{gltf,bin,png} 원본 파일은 `src/blackbox-viewer/models/`에 그대로
   남아 있음(참조 백업). 번들에는 포함되지 않으므로 APK 용량 영향 없음.
   원본 복귀 필요 시 import 3줄 + loadBellCw로 되돌리면 됨(4단계 기록의
