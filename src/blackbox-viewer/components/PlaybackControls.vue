@@ -63,31 +63,31 @@
         </div>
     </div>
     <div class="toolbar-panel log-playback-panel">
-        <h4>Mark</h4>
+        <h4>Select</h4>
         <div class="flex items-center gap-0.5">
             <UButton
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-skip-back"
                 size="xs"
-                title="Mark in (I)"
-                @click="markIn"
+                title="Select in (I)"
+                @click="selectIn"
             />
             <UButton
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-circle"
                 size="xs"
-                title="Clear mark"
-                @click="clearMark"
+                title="Select all (whole timeline)"
+                @click="selectAll"
             />
             <UButton
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-skip-forward"
                 size="xs"
-                title="Mark out (O)"
-                @click="markOut"
+                title="Select out (O)"
+                @click="selectOut"
             />
         </div>
     </div>
@@ -111,18 +111,23 @@ defineEmits([
 const playbackStore = usePlaybackStore();
 const logStore = useLogStore();
 
-function markIn() {
+function selectIn() {
     const t = logStore.currentBlackboxTime;
     setVideoInTime(playbackStore.videoExportInTime === t ? null : t);
 }
 
-function markOut() {
+function selectOut() {
     const t = logStore.currentBlackboxTime;
     setVideoOutTime(playbackStore.videoExportOutTime === t ? null : t);
 }
 
-function clearMark() {
-    setVideoInTime(null);
-    setVideoOutTime(null);
+/** middle button (○): select all — whole timeline from start to end */
+function selectAll() {
+    const flightLog = logStore.flightLog;
+    if (!flightLog) {
+        return;
+    }
+    setVideoInTime(flightLog.getMinTime());
+    setVideoOutTime(flightLog.getMaxTime());
 }
 </script>
