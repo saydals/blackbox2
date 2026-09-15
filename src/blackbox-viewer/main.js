@@ -5,8 +5,7 @@ import { FlightLogGrapher } from "./grapher.js";
 import { Configuration, ConfigurationDefaults } from "./configuration.js";
 import { GraphConfig } from "./graph_config.js";
 import { SeekBar } from "./seekbar.js";
-import ctzsnoozeWorkspace from "./ws_ctzsnooze.json";
-import supaflyWorkspace from "./ws_supafly.json";
+import wsRf from "./ws_rf.json";
 import { FlightLog } from "./flightlog.js";
 import { stringTimetoMsec, validate, mouseNotification } from "./tools.js";
 import { restorePenDefaults, changePenSmoothing, changePenZoom, changePenExpo } from "./pen_adjustment.js";
@@ -408,7 +407,7 @@ export function bootstrapViewer() {
             if (item) {
                 workspaceStore.workspaceGraphConfigs = upgradeWorkspaceFormat(item);
             } else {
-                workspaceStore.workspaceGraphConfigs = structuredClone(ctzsnoozeWorkspace);
+                workspaceStore.workspaceGraphConfigs = structuredClone(wsRf);
             }
         });
 
@@ -723,7 +722,7 @@ export function bootstrapViewer() {
         workspaceStore.saveWorkspace = (id, title) => onSaveWorkspace(id, title);
         workspaceStore.renameWorkspace = (id, title) => onRenameWorkspace(id, title);
         workspaceStore.applyDefaultWorkspace = (index) => {
-            const presets = [null, structuredClone(ctzsnoozeWorkspace), structuredClone(supaflyWorkspace)];
+            const presets = [null, structuredClone(wsRf)];
             if (presets[index]) {
                 onSwitchWorkspace(presets[index], 1);
             }

@@ -290,6 +290,8 @@ import UiBox from "./UiBox.vue";
 import { GraphConfig } from "../graph_config.js";
 import { FlightLogFieldPresenter } from "../flightlog_fields_presenter.js";
 import { coarseMinMaxStep, FINE_MIN_MAX_STEP, needsFineStep } from "../curve_step.js";
+import { useWorkspaceStore } from "../stores/workspace.js";
+import wsRf from "../ws_rf.json";
 
 const open = defineModel("open", { type: Boolean, default: false });
 
@@ -307,6 +309,108 @@ const localGraphs = ref([]);
 const prevConfig = ref(null);
 const offeredFields = ref([]);
 const exampleGraphs = ref([]);
+
+// 필드명 -> workspace에 저장된 표시 속성(smooth/expo/line/color/min-max) 조회표.
+// 다이얼로그가 열릴 때 미리 조사해서 저장해 둔다: 현재 그래프(localGraphs)는 물론,
+// 현재 화면에 없는 다른 workspace 슬롯에 저장된 속성까지 포함한다.
+// 목적: 빈 그래프에 PID P[yaw] 같은 필드를 새로 추가해도, 비어 있다는 이유만으로
+// 제네릭 기본값이 들어가지 않고 저장된 workspace 속성을 따라 일관되게 보이게 한다.
+const workspaceFieldRegistry = ref(new Map());
+function rememberWorkspaceField(field) {
+    if (!field?.name || workspaceFieldRegistry.value.has(field.name)) {
+        return;
+    }
+    // findExistingField()가 localGraphs 필드와 동일한 모양으로 돌려주도록
+    // field-like 형태로 저장한다: { name, smoothing, curve:{power,MinMax}, color, lineWidth }
+    const fromCurve = field.curve?.MinMax ? { ...field.curve.MinMax } : undefined;
+    const fromDefault = field.default?.MinMax ? { ...field.default.MinMax } : undefined;
+    const minMax = fromCurve ?? fromDefault;
+    workspaceFieldRegistry.value.set(field.name, {
+        name: field.name,
+        smoothing: field.smoothing,
+        curve: {
+            power: field.curve?.power,
+            ...(minMax ? { MinMax: minMax } : {}),
+        },
+        color: field.color,
+        lineWidth: field.lineWidth,
+    });
+}
+function buildWorkspaceFieldRegistry() {
+    workspaceFieldRegistry.value = new Map();
+    // 1) 현재 화면의 그래프(adapted, MinMax 포함)를 최우선으로 등록
+    for (const g of props.graphConfig?.getGraphs?.() ?? []) {
+        for (const f of g?.fields ?? []) {
+            rememberWorkspaceField(f);
+        }
+    }
+    // 2) 저장된 workspace 슬롯 전체를 조사 (현재 열려 있지 않은 그래프 포함).
+    // pinia store에 없으면(테스트/독립 실행) 번들된 프리셋(ws_rf.json)을 대신 본다.
+    let slots = [];
+    try {
+        slots = useWorkspaceStore()?.workspaceGraphConfigs ?? [];
+    } catch {
+        slots = [];
+    }
+    if (!slots?.length) {
+        slots = wsRf ?? [];
+    }
+    for (const slot of slots) {
+        for (const g of slot?.graphConfig ?? []) {
+            for (const f of g?.fields ?? []) {
+                rememberWorkspaceField(f);
+            }
+        }
+    }
+    // 3) 그래프에 없는 그룹 멤버(axisP[0] 등)도: motor[all] 같은 그룹명을 확장해
+    // 형제 멤버(axisP[2] 등)의 속성을 미리 물려준다. extendFields는 flightLog가
+    // 있어야 동작하므로 없을 때는 스킵.
+    if (props.flightLog && props.graphConfig?.extendFields) {
+        const groupNames = new Set();
+        for (const name of workspaceFieldRegistry.value.keys()) {
+            const m = name.match(/^(.+)\[all\]$/);
+            if (m) {
+                groupNames.add(name);
+            }
+        }
+        // offeredFields에 있는 그룹명도 포함 (registry에 아직 없어도 확장 시도)
+        try {
+            for (const name of offeredFields.value ?? []) {
+                if (/\[all\]$/.test(name ?? "")) {
+                    groupNames.add(name);
+                }
+            }
+        } catch {
+            /* ignore */
+        }
+        for (const groupName of groupNames) {
+            let expanded = [];
+            try {
+                expanded = props.graphConfig.extendFields(props.flightLog, { name: groupName }) ?? [];
+            } catch {
+                expanded = [];
+            }
+            for (const ef of expanded) {
+                if (!workspaceFieldRegistry.value.has(ef?.name) && ef?.name) {
+                    // 그룹 자체에 저장된 속성이 있으면 물려주고, 없으면 기본 계산값 사용
+                    const groupTpl = workspaceFieldRegistry.value.get(groupName);
+                    workspaceFieldRegistry.value.set(ef.name, {
+                        name: ef.name,
+                        smoothing: groupTpl?.smoothing ?? ef.smoothing,
+                        curve: {
+                            power: groupTpl?.curve?.power ?? ef.curve?.power,
+                            ...((groupTpl?.curve?.MinMax ?? ef.curve?.MinMax)
+                                ? { MinMax: { ...(groupTpl?.curve?.MinMax ?? ef.curve.MinMax) } }
+                                : {}),
+                        },
+                        color: groupTpl?.color ?? ef.color,
+                        lineWidth: groupTpl?.lineWidth ?? ef.lineWidth,
+                    });
+                }
+            }
+        }
+    }
+}
 
 // --- Drag-and-drop reordering of graph panels (Sortable.js) ---
 // Stable per-panel id so Vue's keyed reconciliation cooperates with Sortable's
@@ -504,12 +608,59 @@ function friendlyName(fieldName) {
 }
 
 function getDefaults(fieldName) {
+    // workspace에 저장된 속성을 미리 조사한 조회표에서 그대로 가져온다.
+    // 조회표는 다이얼로그 오픈 시점에 buildWorkspaceFieldRegistry()가
+    // 현재 그래프 + 저장된 workspace 슬롯 전체를 조사해서 미리 지정해 둔다.
+    // 빈 그래프에 새 필드를 추가해도 조회표에 있으면 저장 속성을 따라 일관되게 보인다.
+    // smooth / expo(power) / line(lineWidth) / color / min-max 전부 그대로 따른다.
+    // 저장된 속성이 없을 때만 로그 기반 계산값(getDefaultCurve/Smoothing)을 쓴다.
+    const stored = fieldName ? workspaceFieldRegistry.value.get(fieldName) : null;
     if (!props.flightLog) {
+        if (stored) {
+            return {
+                smoothing: stored.smoothing ?? 0,
+                power: stored.curve?.power ?? 1,
+                MinMax: stored.curve?.MinMax ? { ...stored.curve.MinMax } : { min: -500, max: 500 },
+                lineWidth: stored.lineWidth ?? 1,
+                ...(stored.color ? { color: stored.color } : {}),
+            };
+        }
         return { smoothing: 0, power: 1, MinMax: { min: -500, max: 500 } };
     }
-    const smoothing = GraphConfig.getDefaultSmoothingForField(props.flightLog, fieldName);
     const curve = GraphConfig.getDefaultCurveForField(props.flightLog, fieldName);
-    return { smoothing, ...curve };
+    return {
+        smoothing: stored?.smoothing ?? GraphConfig.getDefaultSmoothingForField(props.flightLog, fieldName),
+        power: stored?.curve?.power ?? curve.power,
+        MinMax: stored?.curve?.MinMax ? { ...stored.curve.MinMax } : curve.MinMax ? { ...curve.MinMax } : { min: -500, max: 500 },
+        lineWidth: stored?.lineWidth ?? 1,
+        ...(stored?.color ? { color: stored.color } : {}),
+    };
+}
+
+// 저장된 workspace 조회표에서 같은 이름 필드의 속성을 찾아
+// smooth / expo(curve.power) / line(lineWidth) / color / min-max 표시 속성을 그대로 재사용한다.
+// 탐색 순서: 1) 현재 열려 있는 그래프(localGraphs) 2) 다이얼로그 오픈 시점에 미리
+// 조사해 둔 workspace 전체 조회표(현재 화면에 없는 슬롯 포함).
+// 목적: PID P[yaw] 처럼 프리셋/workspace에 이미 있는 필드를 새 그래프에 추가해도
+// 두 곡선이 다르게 보이지 않도록 한다. 없으면 null.
+function findExistingField(fieldName, excludeField = null) {
+    if (!fieldName) {
+        return null;
+    }
+    for (const g of localGraphs.value) {
+        if (!g.fields) {
+            continue;
+        }
+        for (const f of g.fields) {
+            if (f === excludeField) {
+                continue;
+            }
+            if (f.name === fieldName) {
+                return f;
+            }
+        }
+    }
+    return workspaceFieldRegistry.value.get(fieldName) ?? null;
 }
 
 function ensureCurveMinMax(field) {
@@ -547,6 +698,25 @@ function resetMax(field) {
     setMax(field, defaults.MinMax.max);
 }
 
+function applyStoredAttributes(field, stored, fieldName) {
+    // 미리 조사한 workspace 조회표(getDefaults에 이미 반영됨)에서
+    // smooth / expo(power) / line(lineWidth) / color / min-max를 전부 그대로 복사한다.
+    // stored가 별도로 넘어오면(현재 그래프의 live 필드) 그것을 우선한다.
+    const defaults = getDefaults(fieldName);
+    const source = stored ?? (defaults ? { smoothing: defaults.smoothing, curve: { power: defaults.power, MinMax: defaults.MinMax }, color: defaults.color, lineWidth: defaults.lineWidth } : null);
+    const minMax = source?.curve?.MinMax ? { ...source.curve.MinMax } : { ...defaults.MinMax };
+    field.smoothing = source?.smoothing ?? defaults.smoothing;
+    field.curve = {
+        power: source?.curve?.power ?? defaults.power,
+        MinMax: minMax,
+        highPrecise: needsFineStep(minMax),
+    };
+    field.lineWidth = source?.lineWidth ?? defaults.lineWidth ?? 1;
+    if (source?.color) {
+        field.color = source.color;
+    }
+}
+
 function onFieldChange(graph, field) {
     if (!field.name || !props.flightLog || !props.graphConfig) {
         return;
@@ -561,20 +731,25 @@ function onFieldChange(graph, field) {
         const idx = graph.fields.indexOf(field);
         const colorStart = idx;
         const newFields = expanded.map((ef, i) => {
+            const existing = findExistingField(ef.name, field);
+            // 그룹 확장(axisP[all] 등): smooth/expo/line/color/min-max 전부
+            // 미리 조사한 workspace 속성을 따르고,
+            // 색만 새 그래프 팔레트 순번으로 덮는다(같은 그래프 안에서 색 겹침 방지).
             const c = palette[(colorStart + i) % palette.length].color;
-            return makeField(ef.name, ef, c);
+            return makeField(ef.name, existing || ef, c);
         });
         graph.fields.splice(idx, 1, ...newFields);
     } else {
-        // Apply defaults for the selected field
-        const defaults = getDefaults(field.name);
-        const minMax = { ...defaults.MinMax };
-        field.smoothing = defaults.smoothing;
-        field.curve = { power: defaults.power, MinMax: minMax, highPrecise: needsFineStep(minMax) };
+        // 미리 조사한 workspace 조회표에서 같은 이름 필드의
+        // smooth/expo/line/color/min-max를 전부 그대로 복사한다.
+        applyStoredAttributes(field, findExistingField(field.name, field), field.name);
     }
 }
 
 function makeField(name, existing, color) {
+    // getDefaults()가 이미 미리 조사한 workspace 저장 속성
+    // (smooth/expo/line/color/min-max 전부)을 반영하므로 그대로 따른다.
+    // 색만 호출자가 정한 팔레트 값을 우선한다(같은 그래프 안 색 겹침 방지).
     const defaults = getDefaults(name);
     const minMax = existing?.curve?.MinMax ? { ...existing.curve.MinMax } : { ...defaults.MinMax };
     return {
@@ -585,8 +760,8 @@ function makeField(name, existing, color) {
             MinMax: minMax,
             highPrecise: needsFineStep(minMax),
         },
-        color: color || existing?.color || palette[0].color,
-        lineWidth: existing?.lineWidth ?? 1,
+        color: color || existing?.color || defaults.color || palette[0].color,
+        lineWidth: existing?.lineWidth ?? defaults.lineWidth ?? 1,
     };
 }
 
@@ -618,14 +793,21 @@ function addExampleGraph(example) {
     const fields = [];
     for (const f of example.fields) {
         if (!props.flightLog || !props.graphConfig) {
-            fields.push(makeField(f.name, f, palette[fields.length % palette.length].color));
+            const existing0 = findExistingField(f.name);
+            const c0 =
+                existing0?.color || (f.color && f.color !== -1 ? f.color : palette[fields.length % palette.length].color);
+            fields.push(makeField(f.name, existing0 || f, c0));
             continue;
         }
         const expanded = props.graphConfig.extendFields(props.flightLog, f);
         for (const ef of expanded) {
+            // 프리셋/예제 그래프 추가 시에도 이미 열려 있는 동일 필드가 있으면
+            // 그 속성(smooth/expo/line/color/min-max)을 그대로 따른다.
+            const existing = findExistingField(ef.name);
             const c =
-                ef.color && ef.color !== -1 ? ef.color : palette[(colorBase + fields.length) % palette.length].color;
-            fields.push(makeField(ef.name, ef, c));
+                existing?.color ||
+                (ef.color && ef.color !== -1 ? ef.color : palette[(colorBase + fields.length) % palette.length].color);
+            fields.push(makeField(ef.name, existing || ef, c));
         }
     }
     localGraphs.value.push({
@@ -678,6 +860,7 @@ watch(open, (val) => {
     }
     buildOfferedFields();
     buildExampleGraphs();
+    buildWorkspaceFieldRegistry();
 
     // Clone current graphs into local state
     if (props.graphConfig) {
