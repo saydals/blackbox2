@@ -891,7 +891,7 @@ export const FLIGHT_LOG_AIRBORNE_STATES = makeReadOnly(["LANDING", "TAKEOFF"]);
 // Mutable RF gov view selected by adjustFieldDefsList.
 export let FLIGHT_LOG_GOVSTATES_RF_ACTIVE = [];
 
-export const RATES_TYPE = makeReadOnly(["BETAFLIGHT", "RACEFLIGHT", "KISS", "ACTUAL", "QUICK", "ROTORFLIGHT"]);
+export const RATES_TYPE = makeReadOnly(["NONE", "BETAFLIGHT", "RACEFLIGHT", "KISS", "ACTUAL", "QUICK", "ROTORFLIGHT"]);
 
 export const GYRO_TO_USE = makeReadOnly(["FIRST", "SECOND", "BOTH"]);
 
