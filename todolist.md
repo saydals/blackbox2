@@ -1,3 +1,5 @@
+.
+
 개요. 
 
 로터플라이트 앱의 위치는 home\betaflight\rfblackbox ( 또는 저장소에 따라 root\rfblackbox )
@@ -918,7 +920,6 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 - `npm run build` EXIT 0, `npm run lint` EXIT 0.
 - `tests/sticks.test.js` 신규(4 케이스): yaw 기본 비반전(RF/BF), stickInvertYaw 전환, 구버그 정적 검증(`-1:1` 패턴 미존재).
 
-
 ## 버그픽스 1단계 기록 — BP-1 RATES_TYPE off-by-one (2026-09-15, 커밋 eff5397)
 
 ### 변경점
@@ -949,7 +950,6 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 
 ### 영향 분석
 
-
 ## 버그픽스 3단계 기록 — BP-3 RF friendly 라벨 (2026-09-15, 커밋 4401198)
 
 ### 변경점
@@ -972,7 +972,6 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 - `servo[5]`: "Servo Tail" 대신 참조와 동일 "Servo [6]" 적용.
 - 참조 라벨은 추출 원문 그대로 사용 (예: mixer[2]="Mixer SY [yaw]",
   headspeed="Headspeed") — 임의 의역 금지 확인.
-
 
 ## 버그픽스 4단계 기록 — BP-4 heli 3D yaw 반전 (2026-09-15, 커밋 20b0993)
 
@@ -1025,7 +1024,6 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 
 ### 주의 (사용자 설정 지속성)
 
-
 ## 버그픽스 5단계 후속 — craft 기본값 사용자 지정 (2026-09-15, 커밋 cc12a43)
 
 ### 변경점
@@ -1040,7 +1038,6 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
   Craft 위치 입력(0-100 범위)으로 언제든 조정·저장 가능 — 저장 시 localStorage에
   유지되어 다음 실행에 적용됨.
 - 다이얼로그 입력 범위(0~100) 확인 완료 — 5/20/80 모두 유효.
-
 
 ## 버그픽스 5단계 후속 2 — 3D 모델을 heli.glb로 교체 (2026-09-15, 커밋 265db4e/eacf8ab)
 
@@ -1064,7 +1061,6 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 - `npm run lint` EXIT 0, `npx vitest run` 12/12 통과.
 
 ### 비고
-
 
 ## 버그픽스 5단계 후속 3 — 시작 시 sample.bbl 자동 오픈 (2026-09-15, 커밋 338449a)
 
@@ -1118,7 +1114,6 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 - 수동 확인 포인트: 새로고침 시 다이얼로그 없이 바로 그래프 표시,
   로드 실패 강제 시나리오(에셋 404)에서는 웰컴 페이지 정상 표시.
 
-
 ### 검증
 
 - `npm run build` EXIT 0 — `dist/assets/sample-*.bbl` 번들 확인.
@@ -1146,10 +1141,10 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 
 - `npm run build` EXIT 0, `npm run lint` EXIT 0, `npx vitest run` 12/12 통과.
 
-
 - `src/blackbox-viewer/craft_heli_3d.js:128-137`: render()의 rotateTo 호출을
   참조와 동일하게 `rotateTo(-pitch, -yaw, -roll)`로 수정 (인자 순서+부호).
   rotateTo 내부(model.x / wrapper.y / model.z)는 참조와 동일하므로 무수정.
+
 - `tests/craft_heli.test.js`: (1) 참조 매핑(-pitch,-yaw,-roll) 값 단언으로 갱신
   (roll 90°, pitch -45°, yaw 180° → x=+45°, y=-180°, z=-90°),
   (2) 구현 소스 정적 검증(음수 매핑 존재 + 구버그 패턴 부재) 추가.
@@ -1171,17 +1166,20 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 
 - BF 테이블의 RF 잔재 키(rcCommand[3] throttle 등)는 BF 로그용 라벨이라
   유지 — RF 로그에서는 RF 테이블이 우선하므로 사용자 노출 없음.
+
 - `graph_spectrum_calc.js:410` axisError 호출은 firmwareType 미전달(BF 경로
   fallback) — axisError는 BF/RF 공유 라벨이라 무영향, 현행 유지.
 
 - RF 로그 `failsafePhase` 값 4~6이 `presentEnum`에서 이름으로 표시됨
   (수정 전: undefined). BF 로그는 값 0~3만 사용하므로 무영향 — BF 불변 유지.
+
 - 이 테이블을 참조하는 곳은 presenter `decodeFieldRfToFriendly`의
   `failsafePhase` case뿐 (그 외 참조 없음 확인).
 
 ### 검증
 
 - `npm run build` EXIT 0, `npm run lint` EXIT 0, `npx vitest run` 전체 통과.
+
 - 테이블 동등성: 7항목 참조와 JSON 동등 (vm 비교).
 
 - todolist 767행(3단계 기록)의 "index 5, 참조 :934 동일 위치"는 오류였음이
@@ -1191,7 +1189,6 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 
 - `npm run build` EXIT 0, `npm run lint` EXIT 0, `npx vitest run` 전체 통과.
 - 테이블 동등성: RATES_TYPE 7항목 참조와 JSON 동등 (vm 비교).
-
 
 ## 버그픽스 7단계 기록 — BP-7 동영상 내보내기 I/O 마크 (2026-09-15)
 
@@ -1214,6 +1211,7 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 ### 변경점
 
 1. **`src/blackbox-viewer/components/PlaybackControls.vue`**:
+
    - 기존 Playback 패널 옆에 **Mark 패널** 추가 (3개 버튼):
      - `←` (i-lucide-skip-back): Mark in — `setVideoInTime(logStore.currentBlackboxTime)`
      - `○` (i-lucide-circle): Clear mark — `setVideoInTime(null)`, `setVideoOutTime(null)`
@@ -1222,6 +1220,7 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
    - 토글 동작: 동일 위치 재클릭 시 마크 해제 (keyboard_handler.js와 동일 로직).
 
 2. **`src/blackbox-viewer/seekbar.js`**:
+
    - `getSelectedRangeStyle()` 추가: `rgba(120,120,120,0.32)` — 선택 구역 하이라이트.
    - `rebuildBackground()`: 선택 구역(`inTime`~`outTime`)을 `getSelectedRangeStyle()`로
      채우고, 양 끝에 `getCursorStyle()`(빨간색) 1px 경계선 표시.
@@ -1230,6 +1229,7 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
    - 경계선은 `backgroundContext`에 그려져 dirty-region 캐시와 정확히 동작.
 
 3. **`src/blackbox-viewer/components/VideoExportDialog.vue`**:
+
    - `markRangeText` computed 추가: `inTime`~`outTime`을 `m:ss` 형식으로 표시,
      없으면 "Full log (no markers)".
    - 설정 탭 최상단에 "Selected range: {{ markRangeText }}" 표시.
@@ -1246,5 +1246,3 @@ decodeDebugFieldRf) / flightlog.js(isFieldDisabled·rcMotorRawToPct) /
 
 - `npm run build` EXIT 0, `npm run lint` EXIT 0.
 - `npx vitest run` 전체 통과 (4개 파일, 16 테스트).
-
-
