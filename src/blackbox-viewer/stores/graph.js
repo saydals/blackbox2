@@ -54,7 +54,14 @@ export const useGraphStore = defineStore("graph", () => {
 
     const isFullscreen = ref(false);
     const markerTime = ref(0);
+    const SEEK_BAR_MODES = ["collective", "swashNoise", "tailNoise"];
     const seekBarMode = ref("collective");
+    // Restore the last-used seek bar mode (persisted across sessions)
+    prefs.get("seekBarMode", (saved) => {
+        if (SEEK_BAR_MODES.includes(saved)) {
+            seekBarMode.value = saved;
+        }
+    });
 
     // Callbacks registered by main.js
     const invalidateGraph = shallowRef(null);

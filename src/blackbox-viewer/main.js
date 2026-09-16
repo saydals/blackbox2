@@ -283,7 +283,6 @@ export function bootstrapViewer() {
             }
 
             renderLogFileInfo(file);
-            graphStore.seekBarMode = "collective";
             playbackStore.currentOffsetCache.log = file.name; // store the name of the loaded log file
             playbackStore.currentOffsetCache.index = null; // and clear the index
 
@@ -318,7 +317,6 @@ export function bootstrapViewer() {
         }
 
         renderLogFileInfo(fileInfo);
-        graphStore.seekBarMode = "collective";
         playbackStore.currentOffsetCache.log = fileInfo.name;
         playbackStore.currentOffsetCache.index = null;
 

@@ -2,6 +2,7 @@ import { pinia } from "@/js/pinia_instance.js";
 import { useLogStore } from "./stores/log.js";
 import { useGraphStore } from "./stores/graph.js";
 import { useAppStore } from "./stores/app.js";
+import { PrefStorage } from "./pref_storage.js";
 import { formatTime, stringLoopTime } from "./tools.js";
 
 export function renderLogFileInfo(file) {
@@ -166,6 +167,8 @@ export function setSeekBarMode(mode) {
     const graphStore = useGraphStore(pinia);
 
     graphStore.seekBarMode = mode;
+    // Remember the last-used mode so it survives app restarts
+    new PrefStorage().set("seekBarMode", mode);
     if (logStore.flightLog) {
         const seekBar = graphStore.seekBar;
         applySeekBarActivityRange(graphStore, logStore, seekBar);
