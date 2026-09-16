@@ -43,8 +43,11 @@ export function FlightLogIndex(logData) {
                 times: [],
                 offsets: [],
                 avgThrottle: [],
+                collective: [],
                 maxRC: [],
                 maxMotorDiff: [],
+                swashNoise: [],
+                tailNoise: [],
                 initialIMU: [],
                 initialSlow: [],
                 initialGPSHome: [],
@@ -113,6 +116,24 @@ export function FlightLogIndex(logData) {
                     }
                 }
 
+                // Collective pitch field for the activity summary bar
+                // (ref: rfblackbox/js/flightlog_index.js:96 — mixer[3] with setpoint[3] fallback)
+                const collectiveIndex =
+                    mainFrameDef.nameToIndex["mixer[3]"] ?? mainFrameDef.nameToIndex["setpoint[3]"];
+
+                // Vibration summary fields: high-frequency gyro content estimated as
+                // gyroRAW - gyroADC (filtered), accumulated per chunk. Falls back to the
+                // frame-to-frame delta of the filtered gyro when gyroRAW is unavailable.
+                const gyroRawFields = [
+                    mainFrameDef.nameToIndex["gyroRAW[0]"],
+                    mainFrameDef.nameToIndex["gyroRAW[1]"],
+                    mainFrameDef.nameToIndex["gyroRAW[2]"],
+                ];
+                const hasGyroRaw = gyroRawFields[0] !== undefined && gyroRawFields[1] !== undefined && gyroRawFields[2] !== undefined;
+                let noiseSquaredSum = [0, 0, 0];
+                let noiseFrameCount = 0;
+                let noisePrevGyroADC = null;
+
                 // Do we have mag fields? If not mark that data as absent
                 if (magADC[0] === undefined) {
                     magADC = false;
@@ -135,6 +156,17 @@ export function FlightLogIndex(logData) {
                             if (intraIndex.maxTime === false || frameTime > intraIndex.maxTime) {
                                 intraIndex.maxTime = frameTime;
                             }
+
+                            // Accumulate the high-frequency gyro content for this chunk
+                            noiseFrameCount++;
+                            for (let a = 0; a < 3; a++) {
+                                const adc = frame[gyroADC[a]];
+                                const delta = hasGyroRaw
+                                    ? frame[gyroRawFields[a]] - adc
+                                    : adc - (noisePrevGyroADC !== null ? noisePrevGyroADC[a] : adc);
+                                noiseSquaredSum[a] += delta * delta;
+                            }
+                            noisePrevGyroADC = [frame[gyroADC[0]], frame[gyroADC[1]], frame[gyroADC[2]]];
 
                             if (frameType === "I") {
                                 // Start a new chunk on every 4th I-frame
@@ -164,6 +196,20 @@ export function FlightLogIndex(logData) {
 
                                         intraIndex.maxRC.push(rcTotal);
                                     }
+
+                                    intraIndex.collective.push(collectiveIndex !== undefined ? frame[collectiveIndex] : 0);
+
+                                    // Chunk vibration RMS: swash = worse of roll/pitch, tail = yaw
+                                    const noiseDiv = noiseFrameCount || 1;
+                                    const noiseRMS = [
+                                        Math.sqrt(noiseSquaredSum[0] / noiseDiv),
+                                        Math.sqrt(noiseSquaredSum[1] / noiseDiv),
+                                        Math.sqrt(noiseSquaredSum[2] / noiseDiv),
+                                    ];
+                                    intraIndex.swashNoise.push(Math.max(noiseRMS[0], noiseRMS[1]));
+                                    intraIndex.tailNoise.push(noiseRMS[2]);
+                                    noiseSquaredSum = [0, 0, 0];
+                                    noiseFrameCount = 0;
 
                                     /* To enable seeking to an arbitrary point in the log without re-reading anything
                                      * that came before, we have to record the initial state of various items which aren't

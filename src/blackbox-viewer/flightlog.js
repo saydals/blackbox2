@@ -207,6 +207,9 @@ export function FlightLog(logData) {
         return {
             times: directory.times,
             avgThrottle: directory.avgThrottle,
+            collective: directory.collective,
+            swashNoise: directory.swashNoise,
+            tailNoise: directory.tailNoise,
             maxMotorDiff: directory.maxMotorDiff,
             maxRC: directory.maxRC,
             hasEvent: directory.hasEvent,

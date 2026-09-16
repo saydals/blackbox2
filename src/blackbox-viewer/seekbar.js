@@ -9,10 +9,6 @@ function getEventBarStyle() {
     return "#8d8"; // Green color works in both themes
 }
 
-function getActivityBarStyle() {
-    return ThemeColors.isDarkTheme() ? "rgba(200,200,255, 0.9)" : "rgba(170,170,255, 0.9)";
-}
-
 function getOutsideExportRangeStyle() {
     return "rgba(100, 100, 100, 0.5)"; // Dimming overlay works in both themes
 }
@@ -51,6 +47,10 @@ export function SeekBar(canvas) {
     let outTime = false;
     let backgroundValid = false;
     let dirtyRegion = false;
+    //Severity badge (noise modes): absolute vibration score + its band colour. null when
+    //the plotted value has no absolute scale (e.g. collective pitch).
+    let severityScore = null;
+    let severityColor = null;
     //Current time cursor:
     let CURSOR_WIDTH = 1;
     // The bar begins a couple of px inset from the left to allow the cursor to hang over the edge at start&end
@@ -169,6 +169,21 @@ export function SeekBar(canvas) {
         that.repaint();
     };
 
+    // Activity bar colour: the severity band colour when available (noise modes — the whole
+    // graph is tinted by the log's absolute vibration level), otherwise the theme default.
+    function barStyle() {
+        if (severityColor) {
+            return severityColor;
+        }
+        return ThemeColors.isDarkTheme() ? "rgba(200,200,255, 0.9)" : "rgba(170,170,255, 0.9)";
+    }
+
+    this.setSeverity = function (score, color) {
+        severityScore = score;
+        severityColor = color;
+        invalidateBackground();
+    };
+
     this.setActivityRange = function (min, max) {
         activityMin = min;
         activityMax = max;
@@ -238,7 +253,7 @@ export function SeekBar(canvas) {
                 backgroundContext.stroke();
 
                 //Draw activity bars
-                backgroundContext.strokeStyle = getActivityBarStyle();
+                backgroundContext.strokeStyle = barStyle();
                 backgroundContext.beginPath();
 
                 time = min;
@@ -256,6 +271,9 @@ export function SeekBar(canvas) {
                         activity =
                             ((activityStrength[activityIndex] - activityMin) / (activityMax - activityMin)) *
                             canvas.height;
+                        // Clamp: values outside the normalisation range (e.g. noise spikes above
+                        // the p95 headroom) must not draw outside the bar.
+                        activity = Math.max(0, Math.min(canvas.height, activity));
                         backgroundContext.moveTo(x, canvas.height);
                         backgroundContext.lineTo(x, canvas.height - activity);
                     }
@@ -264,6 +282,20 @@ export function SeekBar(canvas) {
                 }
 
                 backgroundContext.stroke();
+            }
+
+            // Severity score badge (noise modes): the log's absolute vibration level, drawn
+            // boldly at the start of the graph in its band colour. Dark outline keeps it
+            // readable over the bars in both themes.
+            if (severityScore !== null && severityColor) {
+                const scoreText = String(severityScore);
+                backgroundContext.font = "bold 12px sans-serif";
+                backgroundContext.textBaseline = "top";
+                backgroundContext.lineWidth = 3;
+                backgroundContext.strokeStyle = "rgba(0, 0, 0, 0.85)";
+                backgroundContext.strokeText(scoreText, 5, 3);
+                backgroundContext.fillStyle = severityColor;
+                backgroundContext.fillText(scoreText, 5, 3);
             }
 
             // Paint selected export range (highlighted) instead of dimming the outside

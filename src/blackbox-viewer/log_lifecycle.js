@@ -84,10 +84,7 @@ export function renderSelectedLogInfo() {
         logStore.flightLog.getMaxTime(),
         logStore.currentBlackboxTime,
     );
-    seekBar.setActivityRange(
-        logStore.flightLog.getSysConfig().motorOutput[0],
-        logStore.flightLog.getSysConfig().motorOutput[1],
-    );
+    applySeekBarActivityRange(graphStore, logStore, seekBar);
 
     const activity = logStore.flightLog.getActivitySummary();
     seekBar.setActivity(activity.times, activity[graphStore.seekBarMode], activity.hasEvent);
@@ -98,14 +95,82 @@ export function renderSelectedLogInfo() {
     }
 }
 
+/**
+ * Normalisation range for the seek bar activity graph. The collective mode scales against
+ * the FC's collectiveRange header (ref: rfblackbox/js/main.js:424); the other modes keep
+ * using the motor output range.
+ */
+/**
+ * Absolute vibration severity bands for the seek bar (deg/s RMS of the high-frequency
+ * gyro content, judged on the flight baseline = p50). Calibrated against a known-good
+ * and a known-vibrating Rotorflight log; assumes a typical RF gyro LPF (150~250 Hz) —
+ * logs recorded with much lower LPF cut-offs inflate the metric. Lower is better.
+ */
+const NOISE_SEVERITY_BANDS = {
+    swashNoise: { green: 50, yellow: 100, orange: 140 },
+    tailNoise: { green: 20, yellow: 35, orange: 50 },
+};
+
+const SEVERITY_COLORS = {
+    green: "#22c55e",
+    yellow: "#eab308",
+    orange: "#f97316",
+    red: "#ef4444",
+};
+
+function computeNoiseSeverity(mode, values) {
+    const bands = NOISE_SEVERITY_BANDS[mode];
+    if (!bands || !values?.length) {
+        return null;
+    }
+    const sorted = [...values].sort((a, b) => a - b);
+    const score = Math.round(sorted[Math.floor(sorted.length * 0.5)]);
+    const color =
+        score < bands.green
+            ? SEVERITY_COLORS.green
+            : score < bands.yellow
+              ? SEVERITY_COLORS.yellow
+              : score < bands.orange
+                ? SEVERITY_COLORS.orange
+                : SEVERITY_COLORS.red;
+    return { score, color };
+}
+
+function applySeekBarActivityRange(graphStore, logStore, seekBar) {
+    const sysConfig = logStore.flightLog.getSysConfig();
+    const mode = graphStore.seekBarMode;
+    let range = sysConfig.motorOutput;
+    let severity = null;
+    if (
+        mode === "collective" &&
+        sysConfig.collectiveRange?.[0] != null &&
+        sysConfig.collectiveRange?.[1] != null
+    ) {
+        range = sysConfig.collectiveRange;
+    } else if (mode === "swashNoise" || mode === "tailNoise") {
+        // Vibration modes are relative: normalise against the log's own 95th percentile
+        // (with headroom) so a single extreme spike can't flatten the rest of the bar.
+        const values = logStore.flightLog.getActivitySummary()[mode] ?? [];
+        const sorted = [...values].sort((a, b) => a - b);
+        const p95 = sorted.length ? sorted[Math.floor(sorted.length * 0.95)] : 0;
+        range = [0, p95 > 0 ? p95 * 1.1 : 1];
+        // Absolute severity: whole graph tinted by the log's baseline vibration level.
+        severity = computeNoiseSeverity(mode, values);
+    }
+    seekBar.setActivityRange(range[0], range[1]);
+    seekBar.setSeverity(severity ? severity.score : null, severity ? severity.color : null);
+}
+
 export function setSeekBarMode(mode) {
     const logStore = useLogStore(pinia);
     const graphStore = useGraphStore(pinia);
 
     graphStore.seekBarMode = mode;
     if (logStore.flightLog) {
+        const seekBar = graphStore.seekBar;
+        applySeekBarActivityRange(graphStore, logStore, seekBar);
         const activity = logStore.flightLog.getActivitySummary();
-        graphStore.seekBar.setActivity(activity.times, activity[mode], activity.hasEvent);
-        graphStore.seekBar.repaint();
+        seekBar.setActivity(activity.times, activity[mode], activity.hasEvent);
+        seekBar.repaint();
     }
 }

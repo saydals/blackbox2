@@ -54,7 +54,7 @@ export const useGraphStore = defineStore("graph", () => {
 
     const isFullscreen = ref(false);
     const markerTime = ref(0);
-    const seekBarMode = ref("avgThrottle");
+    const seekBarMode = ref("collective");
 
     // Callbacks registered by main.js
     const invalidateGraph = shallowRef(null);

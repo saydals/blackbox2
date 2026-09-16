@@ -13,13 +13,13 @@ import { useGraphStore } from "../stores/graph.js";
 const graphStore = useGraphStore();
 
 const seekbarOptions = [
-    { label: "Average motor throttle", value: "avgThrottle" },
-    { label: "Maximum stick input", value: "maxRC" },
-    { label: "Maximum motor differential", value: "maxMotorDiff" },
+    { label: "Collective pitch", value: "collective" },
+    { label: "Swash noise", value: "swashNoise" },
+    { label: "Tail noise", value: "tailNoise" },
 ];
 
 const seekbarType = computed({
-    get: () => graphStore.seekBarMode || "avgThrottle",
+    get: () => graphStore.seekBarMode || "collective",
     set: (val) => graphStore.setSeekBarMode?.(val),
 });
 </script>

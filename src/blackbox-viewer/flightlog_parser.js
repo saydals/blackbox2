@@ -381,6 +381,7 @@ export function FlightLogParser(logData) {
         features: null, // Activated features (e.g. MOTORSTOP etc)
         Craft_name: null, // Craft Name
         motorOutput: [null, null], // Minimum and maximum outputs to motor's
+        collectiveRange: [-1250, 1250], // Minimum and maximum collective outputs (ref: rfblackbox/js/flightlog_parser.js:325)
         digitalIdleOffset: null, // min throttle for d-shot (as a percentage)
         pidSumLimit: null, // PID sum limit
         pidSumLimitYaw: null, // PID sum limit yaw
@@ -773,6 +774,7 @@ export function FlightLogParser(logData) {
         "levelPID",
         "velPID",
         "motorOutput",
+        "collectiveRange",
         "rc_smoothing_cutoffs",
         "rc_smoothing_active_cutoffs",
         "rc_smoothing_active_cutoffs_ff_sp_thr",
