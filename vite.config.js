@@ -17,7 +17,7 @@ try {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-    base: "./",
+    base: "/blackbox2/",
     define: {
         __APP_VERSION__: JSON.stringify(pkg.version),
         __APP_PRODUCTNAME__: JSON.stringify(pkg.productName),
