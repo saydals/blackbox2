@@ -3,7 +3,7 @@ import semver from "semver";
 import { API_VERSION_1_49 } from "../js/data_storage";
 
 import { FlightLogFieldPresenter } from "./flightlog_fields_presenter";
-import { RATES_TYPE, FIRMWARE_TYPE_ROTORFLIGHT, getRfDebugModeName } from "./flightlog_fielddefs";
+import { FIRMWARE_TYPE_ROTORFLIGHT, getRfDebugModeName } from "./flightlog_fielddefs";
 import { escapeRegExp } from "./tools";
 import { getDebugFieldAxis, getDebugModes } from "../js/utils/debugModes";
 
@@ -208,7 +208,7 @@ GraphConfig.getDefaultSmoothingForField = function (flightLog, fieldName) {
             return 5000;
         } else if (fieldName.match(/^gyroADC.*\[/)) {
             return 3000;
-        } else if (fieldName.match(/^gyroUnfilt.*\[/)) {
+        } else if (fieldName.match(/^gyroUnfilt.*\[/) || fieldName.match(/^gyroRAW.*\[/)) {
             return 3000;
         } else if (fieldName.match(/^accSmooth\[/)) {
             return 3000;
@@ -240,7 +240,7 @@ const gatedByApi149 = function (fromApi149, beforeApi149 = {}) {
     return { fromApi149, beforeApi149 };
 };
 
-const GYRO_SCALED_CURVE = { default: (curves) => curves.gyro() };
+const GYRO_SCALED_CURVE = { default: () => minMaxPower1(-250, 250) };
 
 // Firmware before 1.47 called this slot D_MIN, so a log reports one name or the other.
 const D_MAX_CURVE = {
@@ -254,8 +254,8 @@ const RPM_CURVE = { default: (curves) => curves.combined("debug[0]", "debug[1]",
 
 const FEEDFORWARD_LIMIT_CURVE = {
     0: [-100, 100], // jitter attenuator
-    1: (curves) => curves.gyro(), // max setpoint rate for axis
-    2: (curves) => curves.gyro(), // setpoint
+    1: minMaxPower1(-250, 250), // max setpoint rate for axis
+    2: minMaxPower1(-250, 250), // setpoint
     3: [-200, 200], // feedforward
     4: [-200, 200], // setpoint speed unsmoothed
     5: [-200, 200], // setpoint speed smoothed
@@ -290,7 +290,7 @@ const DEBUG_MODE_CURVES = {
     AC_CORRECTION: GYRO_SCALED_CURVE,
     AC_ERROR: GYRO_SCALED_CURVE,
     ANGLERATE: GYRO_SCALED_CURVE,
-    ACCELEROMETER: { default: [-16, 16] },
+    ACCELEROMETER: { default: [-8, 8] },
     MIXER: { default: [-100, 100] },
     BATTERY: { 0: [0, 4096], default: [0, 26] }, // debug[0] is the raw 0-4095 reading
     RC_INTERPOLATION: {
@@ -308,8 +308,8 @@ const DEBUG_MODE_CURVES = {
         7: [0, 50], // valid count 0-3, kept at the very bottom
     },
     RC_SMOOTHING_RATE: {
-        0: (curves) => curves.combined("debug[0]", "debug[2]"), // current frame rate us
-        2: (curves) => curves.combined("debug[0]", "debug[2]"), // average frame rate us
+        0: minMaxPower1(-250, 250), // current frame rate us
+        2: minMaxPower1(-250, 250), // average frame rate us
     },
     ALTITUDE: gatedByApi149(
         {
@@ -330,21 +330,21 @@ const DEBUG_MODE_CURVES = {
         },
     ),
     FFT: {
-        0: (curves) => curves.gyro(), // pre-dyn notch gyro
-        1: (curves) => curves.gyro(), // post-dyn notch gyro
-        2: (curves) => curves.gyro(), // pre-dyn notch gyro downsampled for FFT
+        0: minMaxPower1(-250, 250), // pre-dyn notch gyro
+        1: minMaxPower1(-250, 250), // post-dyn notch gyro
+        2: minMaxPower1(-250, 250), // pre-dyn notch gyro downsampled for FFT
     },
     FFT_FREQ: {
         0: (curves) => curves.combined("debug[0]", "debug[1]", "debug[2]"), // notch 1 centre freq
         1: (curves) => curves.combined("debug[0]", "debug[1]", "debug[2]"), // notch 2 centre freq
         2: (curves) => curves.combined("debug[0]", "debug[1]", "debug[2]"), // notch 3 centre freq
-        3: (curves) => curves.gyro(), // pre-dyn notch gyro
+        3: minMaxPower1(-250, 250), // pre-dyn notch gyro
     },
     DYN_LPF: {
-        0: (curves) => curves.gyro(), // gyro scaled
+        0: minMaxPower1(-250, 250), // gyro scaled
         1: (curves) => curves.combined("debug[1]", "debug[2]"), // notch centre
         2: (curves) => curves.combined("debug[1]", "debug[2]"), // lowpass cutoff
-        3: (curves) => curves.gyro(), // pre-dyn notch gyro
+        3: minMaxPower1(-250, 250), // pre-dyn notch gyro
     },
     FFT_TIME: { default: [-100, 100] },
     ESC_SENSOR_RPM: RPM_CURVE,
@@ -363,7 +363,7 @@ const DEBUG_MODE_CURVES = {
         3: [0, 20], // clip or count
     },
     FEEDFORWARD: {
-        0: (curves) => curves.gyro(), // un-smoothed setpoint, interpolated setpoint in 4.3
+        0: minMaxPower1(-250, 250), // un-smoothed setpoint, interpolated setpoint in 4.3
         1: [-200, 200], // feedforward delta element
         2: [-200, 200], // feedforward boost element
         3: [0, 100], // rcCommand deltaAbs
@@ -393,10 +393,10 @@ const DEBUG_MODE_CURVES = {
         3: [0, 12000], // minRPS
     },
     GYRO_SAMPLE: {
-        0: (curves) => curves.gyroHighResolution(), // before downsampling
-        1: (curves) => curves.gyroHighResolution(), // after downsampling
-        2: (curves) => curves.gyroHighResolution(), // after RPM
-        3: (curves) => curves.gyroHighResolution(), // after all but dyn notch
+        0: minMaxPower1(-250, 250),
+        1: minMaxPower1(-250, 250),
+        2: minMaxPower1(-250, 250),
+        3: minMaxPower1(-250, 250),
         4: [0, 100], // average system load %
     },
     RX_TIMING: {
@@ -597,30 +597,6 @@ const DEBUG_MODE_CURVES = {
 GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
     const sysConfig = flightLog.getSysConfig();
 
-    const maxDegreesSecond = function (scale) {
-        switch (sysConfig["rates_type"]) {
-            case RATES_TYPE.indexOf("ACTUAL"):
-            case RATES_TYPE.indexOf("QUICK"):
-                return Math.max(
-                    sysConfig["rates"][0] * 10 * scale,
-                    sysConfig["rates"][1] * 10 * scale,
-                    sysConfig["rates"][2] * 10 * scale,
-                );
-            default:
-                return Math.max(
-                    flightLog.rcCommandRawToDegreesPerSecond(500, 0) * scale,
-                    flightLog.rcCommandRawToDegreesPerSecond(500, 1) * scale,
-                    flightLog.rcCommandRawToDegreesPerSecond(500, 2) * scale,
-                );
-        }
-    };
-
-    // The accelerometer's own full scale, so an accADC axis follows the craft's
-    // configuration the way a gyro axis does.
-    const maxAccelerometerG = function () {
-        return Math.abs(flightLog.accRawToGs(32767));
-    };
-
     const getMinMaxForFields = function (...fieldNames) {
         // helper to make a curve scale based on the combined min/max of one or more fields
         let min = Number.MAX_VALUE,
@@ -641,14 +617,10 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
 
     const getCurveForMinMaxFields = function (...fieldNames) {
         const mm = getMinMaxForFields(...fieldNames);
-        // added convertation min max values from log file units to friendly chart
         const converted = [
             FlightLogFieldPresenter.ConvertFieldValue(flightLog, fieldName, true, mm.min),
             FlightLogFieldPresenter.ConvertFieldValue(flightLog, fieldName, true, mm.max),
         ];
-        // A field whose unit stores the magnitude of a negative quantity - a CRSF
-        // RSSI in -1 dBm - converts the smaller sample to the larger display value,
-        // so order the pair by what is displayed rather than by what was stored.
         const mmChartUnits = { min: Math.min(...converted), max: Math.max(...converted) };
         return {
             power: 1,
@@ -658,7 +630,6 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
 
     const getCurveForMinMaxFieldsZeroOffset = function (...fieldNames) {
         const mm = getMinMaxForFields(...fieldNames);
-        // added convertation min max values from log file units to friendly chart
         const mmChartUnits = {
             min: FlightLogFieldPresenter.ConvertFieldValue(flightLog, fieldName, true, mm.min),
             max: FlightLogFieldPresenter.ConvertFieldValue(flightLog, fieldName, true, mm.max),
@@ -671,21 +642,12 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
         };
     };
 
-    const gyroScaleMargin = 1.2; // Give a 20% margin for gyro graphs
-    const highResolutionScale = sysConfig.blackbox_high_resolution > 0 ? 10 : 1;
-
     const curves = {
         ownRange: () => getCurveForMinMaxFields(fieldName),
         zeroCentred: () => getCurveForMinMaxFieldsZeroOffset(fieldName),
         combined: (...fieldNames) => getCurveForMinMaxFields(...fieldNames),
-        gyro: () => {
-            const limit = maxDegreesSecond(gyroScaleMargin);
-            return minMaxPower1(-limit, limit);
-        },
-        gyroHighResolution: () => {
-            const limit = maxDegreesSecond(gyroScaleMargin * highResolutionScale);
-            return minMaxPower1(-limit, limit);
-        },
+        gyro: () => minMaxPower1(-250, 250),
+        gyroHighResolution: () => minMaxPower1(-250, 250),
     };
 
     const debugModeCurve = function (debugModeName) {
@@ -701,7 +663,12 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
             return minMaxPower1(min, max);
         }
 
-        return typeof spec === "function" ? spec(curves) : null;
+        if (typeof spec === "function") {
+            const result = spec(curves);
+            if (result) return result;
+        }
+
+        return null;
     };
 
     try {
@@ -736,19 +703,18 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
                     max: 16,
                 },
             };
+        } else if (fieldName.match(/^gyroADC\[/)) {
+            return minMaxPower1(-250, 250);
+        } else if (fieldName.match(/^gyroUnfilt\[/) || fieldName.match(/^gyroRAW\[/)) {
+            return minMaxPower1(-1000, 1000);
         } else if (
             fieldName.match(/^axisError\[/) || // Gyro, Gyro Scaled, RC Command Scaled and axisError
-            fieldName.match(/^rcCommands\[[0-2]\]/) || // roll/pitch/yaw setpoint share gyro scale; [3] is collective/throttle, handled below
-            fieldName.match(/^gyroADC\[/) || // same range.
-            fieldName.match(/^gyroUnfilt\[/)
+            fieldName.match(/^rcCommands\[[0-2]\]/) || // roll/pitch/yaw setpoint share gyro scale
+            fieldName.match(/^setpoint\[[0-2]\]/)
         ) {
-            return {
-                power: 1,
-                MinMax: {
-                    min: -maxDegreesSecond(gyroScaleMargin),
-                    max: maxDegreesSecond(gyroScaleMargin),
-                },
-            };
+            return minMaxPower1(-250, 250);
+        } else if (fieldName.match(/^setpoint\[3\]/) || fieldName.match(/^rcCommands\[3\]/)) {
+            return minMaxPower1(-15, 15);
         } else if (fieldName.match(/^axis.+\[/) || fieldName === "GPS_speed") {
             return {
                 power: 1,
@@ -780,6 +746,19 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
                     max: 2000,
                 },
             };
+        } else if (fieldName.match(/^mixer\[/)) {
+            const mixerMax = { 0: 15, 1: 15, 2: 50, 3: 120 };
+            const index = fieldName.match(/^mixer\[(\d+)\]$/)?.[1];
+            const max = index !== undefined ? mixerMax[index] : 100;
+            return minMaxPower1(-max, max);
+        } else if (fieldName === "headspeed") {
+            return minMaxPower1(0, 3500);
+        } else if (fieldName === "altitude") {
+            return minMaxPower1(-100, 100);
+        } else if (fieldName === "vario") {
+            return minMaxPower1(-40, 40);
+        } else if (fieldName.match(/^accADC\[/) || fieldName.match(/^accSmooth\[/)) {
+            return minMaxPower1(-8, 8);
         } else if (fieldName === "heading[2]" || fieldName === "GPS_ground_course" || fieldName === "gpsHomeAzimuth") {
             return {
                 power: 1,
@@ -858,10 +837,10 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
                 return minMaxPower1(axis.range.min, axis.range.max);
             }
             if (axis?.dynamic === "gyro") {
-                return curves.gyro();
+                return minMaxPower1(-250, 250);
             }
             if (axis?.dynamic === "acc") {
-                return minMaxPower1(-maxAccelerometerG(), maxAccelerometerG());
+                return minMaxPower1(-8, 8);
             }
 
             // An unbounded unit says only which fields share an axis, not how wide it
