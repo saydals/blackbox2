@@ -682,7 +682,10 @@
     position: fixed;
     bottom: var(--safe-area-inset-bottom);
     width: 100%;
-    z-index: 100;
+    /* Below the portal-ed dropdown menus (z-60): the workspace menu extends to
+       the bottom of the screen and its last items (Roll/Pitch Preset) were
+       covered by this bar. */
+    z-index: 55;
 }
 
 .blackbox-viewer-root:not(.has-gps) .view-map,

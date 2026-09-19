@@ -2,7 +2,11 @@
     <div class="toolbar-panel log-workspace-panel">
         <h4>Workspace</h4>
 
-        <UDropdownMenu v-model:open="menuOpen" :items="workspaceItems">
+        <UDropdownMenu
+            v-model:open="menuOpen"
+            :items="workspaceItems"
+            :content="{ class: 'z-[60]' }"
+        >
             <UButton
                 variant="outline"
                 color="neutral"
