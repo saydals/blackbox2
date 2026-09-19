@@ -715,18 +715,22 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
             const index = fieldName.match(/^.+\[(\d+)\]$/)?.[1];
             const rateIndex = Number(index);
             if (Number.isInteger(rateIndex) && rateIndex < 3) {
-                const raw = sysConfig["rates"]?.[rateIndex] ?? 500;
-                const limit = raw > 0 ? raw : 500;
-                return minMaxPower1(-limit * 10, limit * 10);
+                const raw = sysConfig["rates"]?.[rateIndex];
+                if (raw && raw > 0) {
+                    return minMaxPower1(-raw * 10, raw * 10);
+                }
+                return minMaxPower1(-500, 500);
             }
             return minMaxPower1(-500, 500);
         } else if (fieldName.match(/^axisError\[/) || fieldName.match(/^rcCommands\[[0-2]\]/) || fieldName.match(/^setpoint\[[0-2]\]/)) {
             const index = fieldName.match(/^.+\[(\d+)\]$/)?.[1];
             const rateIndex = Number(index);
             if (Number.isInteger(rateIndex) && rateIndex < 3) {
-                const raw = sysConfig["rates"]?.[rateIndex] ?? 500;
-                const limit = raw > 0 ? raw : 500;
-                return minMaxPower1(-limit * 10, limit * 10);
+                const raw = sysConfig["rates"]?.[rateIndex];
+                if (raw && raw > 0) {
+                    return minMaxPower1(-raw * 10, raw * 10);
+                }
+                return minMaxPower1(-500, 500);
             }
             return minMaxPower1(-500, 500);
         } else if (fieldName.match(/^setpoint\[3\]/) || fieldName.match(/^rcCommands\[3\]/)) {
