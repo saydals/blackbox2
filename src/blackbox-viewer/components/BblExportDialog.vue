@@ -6,6 +6,7 @@ import { usePlaybackStore } from "../stores/playback.js";
 import { useAppStore } from "../stores/app.js";
 import { generateBbl, suggestedName } from "../export_utils.js";
 import { getAvailableSampleRates } from "../bbl-exporter.js";
+import { resolveExportRange, formatExportRangeText } from "../export_range.js";
 
 const open = defineModel("open", { type: Boolean, default: false });
 const appStore = useAppStore();
@@ -18,19 +19,22 @@ const resultInfo = ref(null);
 const errorMessage = ref("");
 const sampleRate = ref(null);
 
-const markInTime = computed(() => playbackStore.videoExportInTime);
-const markOutTime = computed(() => playbackStore.videoExportOutTime);
-const hasMarks = computed(() => markInTime.value !== null && markOutTime.value !== null);
+// 실제로 내보낼 [start, end] 범위를 해석한다. 마크가 없으면(null/false/NaN)
+// 로그 전체가 기본값이므로 아무것도 선택하지 않아도 0:00 ~ 종료시간이 표시된다.
+const exportRange = computed(() => {
+    const flightLog = logStore.flightLog;
+    if (!flightLog) return null;
+    return resolveExportRange({
+        inTime: playbackStore.videoExportInTime,
+        outTime: playbackStore.videoExportOutTime,
+        getMinTime: () => flightLog.getMinTime(),
+        getMaxTime: () => flightLog.getMaxTime(),
+    });
+});
 const markRangeText = computed(() => {
-    if (!hasMarks.value) return "Full log (no markers)";
-    const fmt = (t) => {
-        if (t == null) return "—";
-        const sec = (t - (logStore.flightLog?.getMinTime?.() ?? 0)) / 1000000;
-        const m = Math.floor(sec / 60);
-        const s = Math.floor(sec % 60);
-        return `${m}:${String(s).padStart(2, "0")}`;
-    };
-    return `${fmt(markInTime.value)} – ${fmt(markOutTime.value)}`;
+    const range = exportRange.value;
+    if (!range) return "—";
+    return formatExportRangeText(range.start, range.end, range.minTime);
 });
 
 const originalRate = computed(() => logStore.flightLog?.getBlackboxRate?.() ?? null);
@@ -75,8 +79,13 @@ async function startExport() {
         return;
     }
 
-    const startTime = playbackStore.videoExportInTime ?? flightLog.getMinTime();
-    const endTime = playbackStore.videoExportOutTime ?? flightLog.getMaxTime();
+    // 표시되는 구간과 동일한 범위를 내보낸다 (마크 없으면 로그 전체).
+    const range = exportRange.value;
+    if (!range) {
+        return;
+    }
+    const startTime = range.start;
+    const endTime = range.end;
 
     const targetRate = selectedRate.value;
     const fileName = suggestedName(appStore.logFilename || "blackbox", "bbl", {

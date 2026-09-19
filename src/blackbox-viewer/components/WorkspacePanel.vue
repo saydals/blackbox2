@@ -7,7 +7,7 @@
                 variant="outline"
                 color="neutral"
                 size="sm"
-                class="justify-between font-mono"
+                class="justify-between"
                 trailing-icon="i-lucide-chevron-down"
             >
                 <span v-if="activeEntry" class="flex items-center gap-1 truncate">

@@ -1,14 +1,17 @@
 <template>
-    <UDropdownMenu :items="menuItems" :content="{ align: 'end', side: 'bottom' }">
-        <UButton
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            icon="i-lucide-menu"
-            aria-label="Application menu"
-            title="Menu"
-        />
-    </UDropdownMenu>
+    <div class="toolbar-panel toolbar-panel--menu">
+        <h4>Menu</h4>
+        <UDropdownMenu :items="menuItems" :content="{ align: 'end', side: 'bottom' }">
+            <UButton
+                variant="ghost"
+                color="neutral"
+                size="sm"
+                icon="i-lucide-menu"
+                aria-label="Application menu"
+                title="Menu"
+            />
+        </UDropdownMenu>
+    </div>
 </template>
 
 <script setup>

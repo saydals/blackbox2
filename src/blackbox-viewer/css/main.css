@@ -509,6 +509,16 @@
     height: 1.15rem;
 }
 
+.video-top-controls h4 {
+    font-size: 9px;
+    color: var(--text-secondary, hsl(0, 0%, 50%));
+    margin-top: 4px;
+    margin-bottom: 2px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
 /* Time 입력은 내용 길이(MM:SS.ss ~ HH:MM:SS.ss)에 맞춰 늘어나고 잘리지 않는다. */
 .video-top-controls .log-chart-time-panel input {
     min-width: 11ch;
@@ -576,13 +586,14 @@
     white-space: nowrap;
     display: flex;
     align-items: stretch;
+    justify-content: flex-start;
     min-height: 76px;
 }
 
 .video-top-controls-scroll {
     display: flex;
     align-items: stretch;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
     overflow-x: auto;
     overflow-y: hidden;

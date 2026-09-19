@@ -41,11 +41,17 @@ export function setVideoInTime(inTime) {
     const playbackStore = usePlaybackStore(pinia);
     const graphStore = useGraphStore(pinia);
 
-    playbackStore.videoExportInTime = inTime;
-    graphStore.seekBar?.setInTime(inTime);
+    // The store uses `null` for "no mark"; the graph and seek bar use `false`.
+    // Normalise here so every consumer (dialogs, keyboard toggles, exporters)
+    // agrees on what an unset mark looks like.
+    const mark = Number.isFinite(inTime) ? inTime : null;
+    const graphMark = mark ?? false;
+
+    playbackStore.videoExportInTime = mark;
+    graphStore.seekBar?.setInTime(graphMark);
 
     if (graphStore.graph) {
-        graphStore.graph.setInTime(inTime);
+        graphStore.graph.setInTime(graphMark);
         graphStore.invalidateGraph?.();
     }
 }
@@ -54,11 +60,15 @@ export function setVideoOutTime(outTime) {
     const playbackStore = usePlaybackStore(pinia);
     const graphStore = useGraphStore(pinia);
 
-    playbackStore.videoExportOutTime = outTime;
-    graphStore.seekBar?.setOutTime(outTime);
+    // See setVideoInTime: store keeps `null` for "no mark", graph keeps `false`.
+    const mark = Number.isFinite(outTime) ? outTime : null;
+    const graphMark = mark ?? false;
+
+    playbackStore.videoExportOutTime = mark;
+    graphStore.seekBar?.setOutTime(graphMark);
 
     if (graphStore.graph) {
-        graphStore.graph.setOutTime(outTime);
+        graphStore.graph.setOutTime(graphMark);
         graphStore.invalidateGraph?.();
     }
 }
