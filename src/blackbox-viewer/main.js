@@ -498,6 +498,13 @@ export function bootstrapViewer() {
         const onWindowResize = () => updateCanvasSize();
         window.addEventListener("resize", onWindowResize);
         cleanupFns.push(() => window.removeEventListener("resize", onWindowResize));
+        // Breakpoint / safe-area driven layout changes resize the graph box
+        // without firing a window resize event (e.g. crossing the phone
+        // media queries). Re-measure the canvases whenever the graph canvas
+        // box itself changes so the graph keeps filling its container.
+        const graphResizeObserver = new ResizeObserver(() => updateCanvasSize());
+        graphResizeObserver.observe(canvas);
+        cleanupFns.push(() => graphResizeObserver.disconnect());
 
         function toggleOverrideStatus(userSetting) {
             settingsStore.saveSetting(userSetting, !userSettings[userSetting]);

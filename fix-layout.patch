@@ -1,0 +1,233 @@
+diff --git a/android/app/build.gradle b/android/app/build.gradle
+index f63ed02..1b3e177 100644
+--- a/android/app/build.gradle
++++ b/android/app/build.gradle
+@@ -45,6 +45,9 @@ repositories {
+ dependencies {
+     implementation fileTree(include: ['*.jar'], dir: 'libs')
+     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
++    // Explicit (not transitive): MainActivity uses androidx.core.view.*
++    // WindowInsetsController APIs for sticky immersive mode.
++    implementation "androidx.core:core:$androidxCoreVersion"
+     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+     implementation 'androidx.documentfile:documentfile:1.0.1'
+diff --git a/android/app/src/main/java/betaflight/app/MainActivity.java b/android/app/src/main/java/betaflight/app/MainActivity.java
+index 682b6b5..d3c5e40 100644
+--- a/android/app/src/main/java/betaflight/app/MainActivity.java
++++ b/android/app/src/main/java/betaflight/app/MainActivity.java
+@@ -1,6 +1,11 @@
+ package betaflight.app;
+ 
+ import android.os.Bundle;
++import android.view.Window;
++
++import androidx.core.view.WindowCompat;
++import androidx.core.view.WindowInsetsCompat;
++import androidx.core.view.WindowInsetsControllerCompat;
+ 
+ import com.getcapacitor.BridgeActivity;
+ import betaflight.app.file.BetaflightFilePlugin;
+@@ -10,5 +15,41 @@ public class MainActivity extends BridgeActivity {
+   public void onCreate(Bundle savedInstanceState) {
+     registerPlugin(BetaflightFilePlugin.class);
+     super.onCreate(savedInstanceState);
++    applyImmersiveStickyMode();
++  }
++
++  @Override
++  public void onWindowFocusChanged(boolean hasFocus) {
++    super.onWindowFocusChanged(hasFocus);
++    // The system can clear the hidden state without recreating the activity:
++    // returning from the file picker, closing the IME, pulling down the
++    // notification shade, a swipe reveal, etc. Re-assert the hidden bars
++    // every time the window regains focus.
++    if (hasFocus) {
++      applyImmersiveStickyMode();
++    }
++  }
++
++  /**
++   * Full "sticky immersive" mode:
++   * - hides the status + navigation bars;
++   * - BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE makes a swipe reveal a transient
++   *   overlay that auto-hides again. The Capacitor SystemBars plugin's
++   *   hide() runs with the default controller behavior, so once the bars
++   *   were revealed they never re-hid on their own and fullscreen was lost.
++   */
++  private void applyImmersiveStickyMode() {
++    Window window = getWindow();
++    if (window == null) {
++      return;
++    }
++    WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(
++      window,
++      window.getDecorView()
++    );
++    controller.setSystemBarsBehavior(
++      WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
++    );
++    controller.hide(WindowInsetsCompat.Type.systemBars());
+   }
+ }
+diff --git a/src/blackbox-viewer/css/main.css b/src/blackbox-viewer/css/main.css
+index 7ae12be..ef61a5b 100644
+--- a/src/blackbox-viewer/css/main.css
++++ b/src/blackbox-viewer/css/main.css
+@@ -9,18 +9,28 @@
+ /*
+  * Android 15+ forces edge-to-edge, so the system bars (gesture/navigation
+  * bar) draw over the app. Capacitor's SystemBars plugin hides them and
+- * injects --safe-area-inset-* variables into the WebView. Bottom-fixed UI
+- * (seek bar / timeline, status bar) uses the variable so the timeline stays
+- * fully visible even if the bar reappears transiently (swipe, fallback) or
+- * hiding is unavailable. A static fallback keeps the layout usable before
+- * the plugin injects the variables.
++ * injects --safe-area-inset-* variables into the WebView as inline styles,
++ * which take precedence over this rule. env(safe-area-inset-*) is used as
++ * the stylesheet fallback so bottom-fixed UI (seek bar / timeline, status
++ * bar) still lifts above a re-appearing system bar before the plugin
++ * injects, or whenever its injection is unavailable (older WebViews,
++ * Android < 15). In regular browsers env() resolves to 0.
+  */
+ :root {
+-    --safe-area-inset-top: 0px;
+-    --safe-area-inset-right: 0px;
+-    --safe-area-inset-bottom: 0px;
+-    --safe-area-inset-left: 0px;
+-    --bottom-bar-clearance: max(0.5em, var(--safe-area-inset-bottom));
++    --safe-area-inset-top: env(safe-area-inset-top, 0px);
++    --safe-area-inset-right: env(safe-area-inset-right, 0px);
++    --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
++    --safe-area-inset-left: env(safe-area-inset-left, 0px);
++
++    /*
++     * Fixed-chrome metrics. The graph row is placed BETWEEN the toolbar and
++     * the seek bar / status bar, so the graph absorbs all leftover space
++     * instead of living inside hardcoded dead margins. Phone media queries
++     * below override these values.
++     */
++    --toolbar-height: 76px; /* .video-top-controls height (64px ≤1020px) */
++    --statusbar-height: 1.5rem; /* .vue-statusbar height (24px) */
++    --seekbar-height: calc(50px + 0.5em); /* timeline canvas + its top margin */
+ }
+ 
+ .blackbox-viewer-root a:hover {
+@@ -51,8 +61,10 @@
+         min-height: 52px;
+     }
+ 
+-    .graph-row {
+-        top: 85px !important;
++    /* Phone landscape: shorter chrome — the graph gains the difference
++       automatically because .graph-row is placed via the variables. */
++    :root {
++        --toolbar-height: 64px;
+     }
+ }
+ 
+@@ -91,10 +103,6 @@
+     .video-top-controls .toolbar-panel {
+         margin-inline-end: 2px;
+     }
+-
+-    div.graph-row {
+-        top: 115px !important;
+-    }
+ }
+ 
+ /* With video */
+@@ -450,9 +458,14 @@
+ .blackbox-viewer-root.has-log .graph-row {
+     display: flex;
+     position: fixed;
+-    top: calc(85px + var(--safe-area-inset-top));
++    /* Fill the space between the toolbar and the seek bar: the former
++       fixed gaps (85px/96px/115px) go to the graph instead. */
++    top: calc(var(--toolbar-height) + 6px + var(--safe-area-inset-top));
+     width: calc(100% - 30px);
+-    bottom: calc(96px + var(--safe-area-inset-bottom));
++    bottom: calc(
++        var(--statusbar-height) + var(--seekbar-height) + 0.5em +
++        var(--safe-area-inset-bottom)
++    );
+ }
+ 
+ .blackbox-viewer-root.has-video .log-graph {
+@@ -568,7 +581,10 @@
+ .blackbox-viewer-root.has-log .log-seek-bar {
+     display: block;
+     position: fixed;
+-    bottom: var(--bottom-bar-clearance);
++    /* Stack directly on top of the 24px status bar. Previously the bottom
++       clearance was only 0.5em (8px), so the opaque status bar overlapped
++       and covered the bottom ~16px of the timeline canvas. */
++    bottom: calc(var(--statusbar-height) + var(--safe-area-inset-bottom));
+     padding-inline-start: calc(15px + var(--safe-area-inset-left));
+     padding-inline-end: calc(15px + var(--safe-area-inset-right));
+ }
+@@ -592,19 +608,25 @@
+ 
+ .blackbox-viewer-root.has-video .video-top-controls,
+ .blackbox-viewer-root.has-log .video-top-controls {
+-    top: 0;
+-    padding: 6px 0.75rem;
++    /* Anchored to the viewport edges — NO min-width. A fixed min-width
++       (1390px) rendered the bar wider than a phone viewport, pushing
++       everything from the ZOOM panel rightwards (including AppMenu) off
++       screen with no way to reach it. */
++    top: var(--safe-area-inset-top);
++    inset-inline-start: 0;
++    inset-inline-end: 0;
++    width: auto;
++    min-width: 0;
++    padding: 6px 15px;
+     position: fixed;
+     z-index: 10;
+     background-color: var(--surface-0);
+     border-bottom: 1px solid var(--border-color, #e5e5e5);
+-    width: 100%;
+-    min-width: 1390px;
+     white-space: nowrap;
+     display: flex;
+     align-items: stretch;
+     justify-content: flex-start;
+-    min-height: 76px;
++    min-height: var(--toolbar-height);
+ }
+ 
+ .video-top-controls-scroll {
+@@ -615,6 +637,15 @@
+     overflow-x: auto;
+     overflow-y: hidden;
+     padding-inline-start: 12px;
++    scrollbar-width: thin;
++}
++
++/* Keep every panel at its natural width so this container actually
++   overflows (and scrolls) on narrow screens instead of squashing the
++   panels — this is what makes ZOOM and the panels after it reachable
++   on phones. */
++.video-top-controls-scroll > .toolbar-panel {
++    flex: none;
+ }
+ 
+ .video-top-controls .toolbar-panel--open {
+diff --git a/src/blackbox-viewer/main.js b/src/blackbox-viewer/main.js
+index f5f4899..a87a910 100644
+--- a/src/blackbox-viewer/main.js
++++ b/src/blackbox-viewer/main.js
+@@ -498,6 +498,13 @@ export function bootstrapViewer() {
+         const onWindowResize = () => updateCanvasSize();
+         window.addEventListener("resize", onWindowResize);
+         cleanupFns.push(() => window.removeEventListener("resize", onWindowResize));
++        // Breakpoint / safe-area driven layout changes resize the graph box
++        // without firing a window resize event (e.g. crossing the phone
++        // media queries). Re-measure the canvases whenever the graph canvas
++        // box itself changes so the graph keeps filling its container.
++        const graphResizeObserver = new ResizeObserver(() => updateCanvasSize());
++        graphResizeObserver.observe(canvas);
++        cleanupFns.push(() => graphResizeObserver.disconnect());
+ 
+         function toggleOverrideStatus(userSetting) {
+             settingsStore.saveSetting(userSetting, !userSettings[userSetting]);
