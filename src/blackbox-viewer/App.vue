@@ -60,6 +60,29 @@
                     </div>
                     <div id="screenshot-frame" class="graph-row">
                         <div id="log-graph" class="log-graph">
+                            <!--
+                                Graph-only fullscreen toggle. Sits in the top-left corner of the
+                                graph canvas, immediately to the left of the filename overlay.
+                                Toggling it adds the `is-fullscreen` class to the viewer root, which
+                                collapses the .video-top-controls header and .log-seek-bar timeline
+                                so .graph-row (and its flex sibling, LegendPanel) can absorb the
+                                full viewport height — see the `.is-fullscreen.*` rules in main.css.
+                            -->
+                            <button
+                                v-if="appStore.logFilename"
+                                type="button"
+                                class="graph-fullscreen-toggle"
+                                :class="{ 'is-active': graphStore.isFullscreen }"
+                                :title="graphStore.isFullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen (F)'"
+                                :aria-label="graphStore.isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
+                                :aria-pressed="graphStore.isFullscreen"
+                                @click="graphStore.toggleFullscreen()"
+                            >
+                                <UIcon
+                                    :name="graphStore.isFullscreen ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
+                                    class="size-5"
+                                />
+                            </button>
                             <div v-if="appStore.logFilename" class="graph-filename-overlay" :title="appStore.logFilename">
                                 {{ appStore.logFilename }}
                             </div>
