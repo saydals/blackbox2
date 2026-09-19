@@ -703,16 +703,22 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
                     max: 16,
                 },
             };
-        } else if (fieldName.match(/^gyroADC\[/)) {
-            return minMaxPower1(-250, 250);
-        } else if (fieldName.match(/^gyroUnfilt\[/) || fieldName.match(/^gyroRAW\[/)) {
-            return minMaxPower1(-1000, 1000);
-        } else if (
-            fieldName.match(/^axisError\[/) || // Gyro, Gyro Scaled, RC Command Scaled and axisError
-            fieldName.match(/^rcCommands\[[0-2]\]/) || // roll/pitch/yaw setpoint share gyro scale
-            fieldName.match(/^setpoint\[[0-2]\]/)
-        ) {
-            return minMaxPower1(-250, 250);
+        } else if (fieldName.match(/^gyroADC\[/) || fieldName.match(/^gyroUnfilt\[/) || fieldName.match(/^gyroRAW\[/)) {
+            const index = fieldName.match(/^.+\[(\d+)\]$/)?.[1];
+            const rateIndex = Number(index);
+            if (Number.isInteger(rateIndex) && rateIndex < 3) {
+                const limit = sysConfig["rates"]?.[rateIndex] ?? 500;
+                return minMaxPower1(-limit * 10, limit * 10);
+            }
+            return minMaxPower1(-500, 500);
+        } else if (fieldName.match(/^axisError\[/) || fieldName.match(/^rcCommands\[[0-2]\]/) || fieldName.match(/^setpoint\[[0-2]\]/)) {
+            const index = fieldName.match(/^.+\[(\d+)\]$/)?.[1];
+            const rateIndex = Number(index);
+            if (Number.isInteger(rateIndex) && rateIndex < 3) {
+                const limit = sysConfig["rates"]?.[rateIndex] ?? 500;
+                return minMaxPower1(-limit * 10, limit * 10);
+            }
+            return minMaxPower1(-500, 500);
         } else if (fieldName.match(/^setpoint\[3\]/) || fieldName.match(/^rcCommands\[3\]/)) {
             return minMaxPower1(-15, 15);
         } else if (fieldName.match(/^axis.+\[/) || fieldName === "GPS_speed") {
