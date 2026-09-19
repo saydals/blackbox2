@@ -715,7 +715,8 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
             const index = fieldName.match(/^.+\[(\d+)\]$/)?.[1];
             const rateIndex = Number(index);
             if (Number.isInteger(rateIndex) && rateIndex < 3) {
-                const limit = sysConfig["rates"]?.[rateIndex] ?? 500;
+                const raw = sysConfig["rates"]?.[rateIndex] ?? 500;
+                const limit = raw > 0 ? raw : 500;
                 return minMaxPower1(-limit * 10, limit * 10);
             }
             return minMaxPower1(-500, 500);
@@ -723,7 +724,8 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
             const index = fieldName.match(/^.+\[(\d+)\]$/)?.[1];
             const rateIndex = Number(index);
             if (Number.isInteger(rateIndex) && rateIndex < 3) {
-                const limit = sysConfig["rates"]?.[rateIndex] ?? 500;
+                const raw = sysConfig["rates"]?.[rateIndex] ?? 500;
+                const limit = raw > 0 ? raw : 500;
                 return minMaxPower1(-limit * 10, limit * 10);
             }
             return minMaxPower1(-500, 500);
