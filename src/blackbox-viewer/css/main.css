@@ -172,7 +172,12 @@
     border-radius: 6px;
     border: 1px solid var(--border-color, #e5e5e5);
     min-width: 135px;
-    flex-grow: 0.02;
+    /* Fixed flex-basis: the panel width must NOT follow its content. With the
+       default `auto` basis, the floated live values ("72.0 %" → "100.0 %")
+       resized the panel every 250 ms during playback, which resized the graph
+       canvas box, which fired the canvas ResizeObserver and cleared/redrew
+       the canvas several times per second — visible flicker while playing. */
+    flex: 0.02 1 200px;
     flex-direction: column;
     display: none;
 }

@@ -809,8 +809,16 @@ export function FlightLogGrapher(flightLog, graphConfig, canvas, stickCanvas, cr
     }
 
     this.resize = function (width, height) {
-        canvas.width = width;
-        canvas.height = height;
+        // Only touch the backing store when the size really changed: setting
+        // canvas.width/height resets (clears) the whole canvas. The graph
+        // canvas is observed by a ResizeObserver, and redundant no-op resizes
+        // here translated into visible flicker while playing.
+        if (canvas.width !== width) {
+            canvas.width = width;
+        }
+        if (canvas.height !== height) {
+            canvas.height = height;
+        }
 
         const sticksHeight = (canvas.height * Number.parseInt(options.sticks.size, 10)) / 2 / 100;
         // The total width available to draw both sticks in:
@@ -925,7 +933,11 @@ export function FlightLogGrapher(flightLog, graphConfig, canvas, stickCanvas, cr
                         field.index,
                         field.curve,
                         (canvas.height * graph.height) / 2,
-                        field.color ? field.color : GraphConfig.PALETTE[j % GraphConfig.PALETTE.length],
+                        // Fallback must be a color STRING: PALETTE entries are
+                        // {color, name} objects, and assigning an object to
+                        // canvasContext.strokeStyle is silently ignored, which
+                        // left the line drawn in the previous (black) stroke.
+                        field.color ? field.color : GraphConfig.PALETTE[j % GraphConfig.PALETTE.length].color,
                         field.lineWidth ? field.lineWidth : null,
                         graphConfig.highlightGraphIndex === i && graphConfig.highlightFieldIndex === j,
                     );

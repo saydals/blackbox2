@@ -52,7 +52,10 @@ export function GraphConfig(graphConfig) {
         const matches = field.name.match(/^(.+)\[all\]$/);
         const logFieldNames = flightLog.getMainFieldNames();
         const fields = [];
-        const setupColor = field?.color === -1;
+        // Auto-assign palette colors only when the template has no real color
+        // (-1 = sentinel, null/undefined = legacy wiped configs). A concrete
+        // color ("#fccde5") must be kept and shared by every expanded field.
+        const setupColor = field?.color == null || field?.color === -1;
         const sysConfig = flightLog.getSysConfig();
         const apiVersion = sysConfig.apiVersion;
         if (matches) {
@@ -64,7 +67,6 @@ export function GraphConfig(graphConfig) {
                     // forceNewCurve must be true for min max computing extended curves.
                     const forceNewCurve = true;
                     const color = GraphConfig.PALETTE[colorIndex++ % GraphConfig.PALETTE.length].color;
-                    field.color = setupColor ? color : undefined;
                     fields.push(
                         adaptField(
                             flightLog,
@@ -72,6 +74,12 @@ export function GraphConfig(graphConfig) {
                                 ...field,
                                 curve: { ...field.curve },
                                 name: fieldName,
+                                // Pass the color per expanded field instead of
+                                // mutating the template: assigning `undefined`
+                                // here used to wipe the preset color from the
+                                // (persisted) workspace config and blanked the
+                                // legend chips / graph lines.
+                                color: setupColor ? color : field.color,
                                 friendlyName: FlightLogFieldPresenter.fieldNameToFriendly(
                                     fieldName,
                                     sysConfig.debug_mode,
