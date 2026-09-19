@@ -5,7 +5,7 @@
         <USelect
             :model-value="logStore.activeLogIndex"
             :items="logStore.logIndexEntries"
-            size="xs"
+            size="sm"
             class="w-56"
             title="Switch log"
             @update:model-value="onLogIndexChange"

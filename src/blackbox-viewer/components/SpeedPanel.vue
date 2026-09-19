@@ -2,13 +2,13 @@
     <div class="toolbar-panel log-playback-rate-panel">
         <h4>Speed</h4>
         <div class="flex items-center gap-1">
-            <UButton variant="ghost" color="neutral" size="xs" title="Decrease speed" @click="changeRate(-1)">
+            <UButton variant="ghost" color="neutral" size="sm" title="Decrease speed" @click="changeRate(-1)">
                 <span class="font-mono text-base font-bold">-</span>
             </UButton>
-            <UButton variant="ghost" color="neutral" size="xs" class="min-w-[42px] justify-center" @click="cycleRate">
+            <UButton variant="ghost" color="neutral" size="sm" class="min-w-[42px] justify-center" @click="cycleRate">
                 <span class="font-mono">{{ playbackStore.playbackRate }}%</span>
             </UButton>
-            <UButton variant="ghost" color="neutral" size="xs" title="Increase speed" @click="changeRate(1)">
+            <UButton variant="ghost" color="neutral" size="sm" title="Increase speed" @click="changeRate(1)">
                 <span class="font-mono text-base font-bold">+</span>
             </UButton>
         </div>

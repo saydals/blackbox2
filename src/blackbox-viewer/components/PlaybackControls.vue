@@ -7,7 +7,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-skip-back"
-                size="xs"
+                size="sm"
                 title="Jump to start of video"
                 @click="$emit('video-jump-start')"
             />
@@ -15,7 +15,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-skip-back"
-                size="xs"
+                size="sm"
                 title="Jump to start of log"
                 @click="$emit('jump-start')"
             />
@@ -23,7 +23,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-step-back"
-                size="xs"
+                size="sm"
                 title="Jump back"
                 @click="$emit('step-back')"
             />
@@ -31,7 +31,7 @@
                 variant="ghost"
                 color="neutral"
                 :icon="playbackStore.isPlaying ? 'i-lucide-pause' : 'i-lucide-play'"
-                size="xs"
+                size="sm"
                 title="Play/Pause"
                 @click="$emit('play-pause')"
             />
@@ -39,7 +39,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-step-forward"
-                size="xs"
+                size="sm"
                 title="Jump forward"
                 @click="$emit('step-forward')"
             />
@@ -47,7 +47,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-skip-forward"
-                size="xs"
+                size="sm"
                 title="Jump to end of log"
                 @click="$emit('jump-end')"
             />
@@ -56,7 +56,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-skip-forward"
-                size="xs"
+                size="sm"
                 title="Jump to end of video"
                 @click="$emit('video-jump-end')"
             />
@@ -69,7 +69,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-skip-back"
-                size="xs"
+                size="sm"
                 title="Select in (I)"
                 @click="selectIn"
             />
@@ -77,7 +77,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-circle"
-                size="xs"
+                size="sm"
                 title="Select all (whole timeline)"
                 @click="selectAll"
             />
@@ -85,7 +85,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-skip-forward"
-                size="xs"
+                size="sm"
                 title="Select out (O)"
                 @click="selectOut"
             />

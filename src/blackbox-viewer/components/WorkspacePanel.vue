@@ -6,7 +6,7 @@
             <UButton
                 variant="outline"
                 color="neutral"
-                size="xs"
+                size="sm"
                 class="justify-between font-mono"
                 trailing-icon="i-lucide-chevron-down"
             >
@@ -23,7 +23,7 @@
                     v-if="!item.disabled && !item.wsPreset"
                     variant="ghost"
                     color="neutral"
-                    size="xs"
+                    size="sm"
                     icon="i-lucide-pencil"
                     aria-label="Rename this workspace"
                     title="Rename this workspace"
@@ -34,7 +34,7 @@
                     v-if="!item.wsPreset"
                     variant="ghost"
                     color="neutral"
-                    size="xs"
+                    size="sm"
                     icon="i-lucide-save"
                     aria-label="Save current graph setup to this workspace"
                     title="Save current graph setup to this workspace"

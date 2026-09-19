@@ -2,13 +2,13 @@
     <div class="toolbar-panel log-chart-zoom-panel">
         <h4>Zoom</h4>
         <div class="flex items-center gap-1">
-            <UButton variant="ghost" color="neutral" size="xs" title="Zoom out" @click="changeZoom(-1)">
+            <UButton variant="ghost" color="neutral" size="sm" title="Zoom out" @click="changeZoom(-1)">
                 <span class="font-mono text-base font-bold">-</span>
             </UButton>
-            <UButton variant="ghost" color="neutral" size="xs" class="min-w-[42px] justify-center" @click="cycleZoom">
+            <UButton variant="ghost" color="neutral" size="sm" class="min-w-[42px] justify-center" @click="cycleZoom">
                 <span class="font-mono">{{ graphStore.graphZoom }}%</span>
             </UButton>
-            <UButton variant="ghost" color="neutral" size="xs" title="Zoom in" @click="changeZoom(1)">
+            <UButton variant="ghost" color="neutral" size="sm" title="Zoom in" @click="changeZoom(1)">
                 <span class="font-mono text-base font-bold">+</span>
             </UButton>
         </div>

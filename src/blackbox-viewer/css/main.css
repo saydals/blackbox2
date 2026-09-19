@@ -25,9 +25,13 @@
         display: none !important;
     }
 
-    .video-top-controls {
-        height: 36px;
-        padding-top: 6px;
+    .blackbox-viewer-root.has-video .video-top-controls,
+    .blackbox-viewer-root.has-log .video-top-controls {
+        min-height: 64px;
+    }
+
+    .video-top-controls .toolbar-panel {
+        min-height: 52px;
     }
 
     .graph-row {
@@ -62,9 +66,9 @@
         font-size: 115%;
     }
 
-    .video-top-controls {
-        height: 28px;
-        padding-top: 4px;
+    .blackbox-viewer-root.has-video .video-top-controls,
+    .blackbox-viewer-root.has-log .video-top-controls {
+        min-height: 64px;
     }
 
     .video-top-controls .toolbar-panel {
@@ -462,11 +466,14 @@
 }
 
 .video-top-controls .toolbar-panel {
-    display: inline-block;
-    margin-inline-end: 12px;
-    padding-inline-end: 12px;
+    display: inline-flex;
+    flex-direction: column;
+    justify-content: center;
+    margin-inline-end: 14px;
+    padding-inline-end: 14px;
     vertical-align: middle;
     border-inline-end: 1px solid var(--border-color, #e5e5e5);
+    min-height: 64px;
 }
 
 .video-top-controls .toolbar-panel:last-child {
@@ -475,24 +482,44 @@
     padding-inline-end: 0;
 }
 
+.video-top-controls-scroll > .toolbar-panel:last-child {
+    border-inline-end: 1px solid var(--border-color, #e5e5e5);
+    margin-inline-end: 14px;
+    padding-inline-end: 14px;
+}
+
+.blackbox-viewer-root.dark .video-top-controls-scroll > .toolbar-panel:last-child {
+    border-inline-end-color: var(--surface-800, hsl(0, 0%, 25%));
+}
+
 .blackbox-viewer-root.dark .video-top-controls .toolbar-panel {
     border-inline-end-color: var(--surface-800, hsl(0, 0%, 25%));
 }
 
-.video-top-controls h4 {
-    font-size: 9px;
-    color: var(--text-secondary, hsl(0, 0%, 50%));
-    margin-top: 4px;
-    margin-bottom: 2px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+.video-top-controls .toolbar-panel .flex {
+    align-items: center;
+}
+
+.video-top-controls .toolbar-panel :is(button, input, select) {
+    font-size: 0.875rem;
+}
+
+.video-top-controls .toolbar-panel :is(svg, .size-4, .size-5) {
+    width: 1.15rem;
+    height: 1.15rem;
+}
+
+/* Time 입력은 내용 길이(MM:SS.ss ~ HH:MM:SS.ss)에 맞춰 늘어나고 잘리지 않는다. */
+.video-top-controls .log-chart-time-panel input {
+    min-width: 11ch;
+    max-width: 20ch;
+    text-align: center;
 }
 
 .blackbox-viewer-root.has-log .video-top-controls .log-view-panel,
 .blackbox-viewer-root.has-log .video-top-controls .log-chart-zoom-panel,
 .blackbox-viewer-root.has-log .video-top-controls .log-chart-time-panel {
-    display: inline-block;
+    display: inline-flex;
 }
 
 .video-top-controls .log-view-panel,
@@ -505,7 +532,7 @@
     display: none;
 }
 .blackbox-viewer-root.has-video.has-log .video-top-controls .log-sync-panel {
-    display: inline-block;
+    display: inline-flex;
 }
 .log-seek-bar {
     display: none;
@@ -533,13 +560,13 @@
 .blackbox-viewer-root.has-log .video-top-controls,
 .blackbox-viewer-root.has-video .log-graph,
 .blackbox-viewer-root.has-log .log-graph {
-    display: block;
+    display: flex;
 }
 
 .blackbox-viewer-root.has-video .video-top-controls,
 .blackbox-viewer-root.has-log .video-top-controls {
-    top: 35px;
-    padding: 2px 0.75rem;
+    top: 0;
+    padding: 6px 0.75rem;
     position: fixed;
     z-index: 10;
     background-color: var(--surface-0);
@@ -547,6 +574,32 @@
     width: 100%;
     min-width: 1390px;
     white-space: nowrap;
+    display: flex;
+    align-items: stretch;
+    min-height: 76px;
+}
+
+.video-top-controls-scroll {
+    display: flex;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-inline-start: 12px;
+}
+
+.video-top-controls .toolbar-panel--open {
+    flex: none;
+    flex-direction: row;
+    align-items: center;
+    padding-inline-start: 12px;
+}
+
+.video-top-controls .toolbar-panel--menu-wrap {
+    flex: none;
+    margin-inline-end: 0;
+    padding-inline-end: 0;
 }
 
 .blackbox-viewer-root.dark .video-top-controls {
@@ -560,18 +613,6 @@
 .blackbox-viewer-root.has-log .app-main-pane,
 .blackbox-viewer-root.has-video .app-main-pane {
     display: block;
-}
-
-.blackbox-viewer-root.has-video .app-navbar,
-.blackbox-viewer-root.has-log .app-navbar {
-    display: block;
-}
-
-.app-navbar {
-    display: none;
-    position: fixed;
-    width: 100%;
-    z-index: 30;
 }
 
 .blackbox-viewer-root:not(.has-log) .vue-statusbar {

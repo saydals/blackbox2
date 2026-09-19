@@ -3,34 +3,24 @@
         <div id="blackbox-app">
             <div id="blackbox-viewer-root" ref="viewerRootRef" class="blackbox-viewer-root">
                 <WelcomePage @files-selected="onFilesSelected" />
-                <div class="app-navbar">
-                <AppToolbar
-                    @files-selected="onFilesSelected"
-                    @open-settings="onOpenSettings"
-                    @open-keys="onOpenKeys"
-                    @export-csv="onExportCsv"
-                    @export-bbl="onExportBbl"
-                    @export-video="appStore.videoExportDialogOpen = true"
-                />
-                </div>
 
                 <div class="app-main-pane">
-                    <div class="video-top-controls pl-0">
+                    <div class="video-top-controls">
+                        <div class="toolbar-panel toolbar-panel--open">
+                            <LogFileInput size="sm" label="Open" @files-selected="onFilesSelected" />
+                        </div>
+                        <div class="video-top-controls-scroll">
                         <ViewControls
                             :header-active="appStore.headerDialogOpen"
                             :table-active="graphStore.hasTableOverlay"
-                            :video-active="appStore.viewVideo"
                             :craft-active="graphStore.hasCraft"
                             :sticks-active="graphStore.hasSticks"
                             :analyser-active="graphStore.hasAnalyser"
-                            :map-active="graphStore.hasMap"
                             @toggle-header="onToggleHeader"
                             @toggle-table="onToggleTable"
-                            @toggle-video="onToggleVideo"
                             @toggle-craft="onToggleCraft"
                             @toggle-sticks="onToggleSticks"
                             @toggle-analyser="onToggleAnalyser"
-                            @toggle-map="onToggleMap"
                         />
                         <PlaybackControls
                             @jump-start="onJumpStart"
@@ -57,6 +47,16 @@
                             @rename-workspace="onRenameWorkspace"
                         />
                         <LogPanel />
+                        </div>
+                        <div class="toolbar-panel toolbar-panel--menu-wrap">
+                            <AppMenu
+                                @export-bbl="onExportBbl"
+                                @export-csv="onExportCsv"
+                                @export-video="appStore.videoExportDialogOpen = true"
+                                @open-settings="onOpenSettings"
+                                @open-keys="onOpenKeys"
+                            />
+                        </div>
                     </div>
                     <div id="screenshot-frame" class="graph-row">
                         <div id="log-graph" class="log-graph">
@@ -113,7 +113,7 @@ import { useLogStore, FIRMWARE_CLASSES } from "./stores/log.js";
 import { usePlaybackStore } from "./stores/playback.js";
 import { useSettingsStore } from "./stores/settings.js";
 import { useWorkspaceStore } from "./stores/workspace.js";
-import AppToolbar from "./components/AppToolbar.vue";
+import AppMenu from "./components/AppMenu.vue";
 import VideoExportDialog from "./components/VideoExportDialog.vue";
 import BblExportDialog from "./components/BblExportDialog.vue";
 import WelcomePage from "./components/WelcomePage.vue";
@@ -135,6 +135,7 @@ import LegendPanel from "./components/LegendPanel.vue";
 import FieldValuesPanel from "./components/FieldValuesPanel.vue";
 import ConfigurationPanel from "./components/ConfigurationPanel.vue";
 import SeekBarToolbar from "./components/SeekBarToolbar.vue";
+import LogFileInput from "./components/LogFileInput.vue";
 
 const graphStore = useGraphStore();
 const appStore = useAppStore();
@@ -219,10 +220,6 @@ function onToggleTable() {
     graphStore.invalidateGraph?.();
 }
 
-function onToggleVideo() {
-    appStore.viewVideo = !appStore.viewVideo;
-}
-
 function onToggleCraft() {
     settingsStore.saveSetting("drawCraft", !settingsStore.userSettings.drawCraft);
 }
@@ -233,10 +230,6 @@ function onToggleSticks() {
 
 function onToggleAnalyser() {
     graphStore.toggleAnalyser();
-}
-
-function onToggleMap() {
-    graphStore.toggleMap();
 }
 
 function onRateChange(rate) {

@@ -6,7 +6,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-step-back"
-                size="xs"
+                size="sm"
                 title="Move log earlier"
                 @click="$emit('sync-back')"
             />
@@ -14,7 +14,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-align-start-vertical"
-                size="xs"
+                size="sm"
                 title="Start log here"
                 @click="$emit('sync-here')"
             />
@@ -22,13 +22,13 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-step-forward"
-                size="xs"
+                size="sm"
                 title="Move log later"
                 @click="$emit('sync-forward')"
             />
             <UInput
                 :model-value="appStore.videoOffsetDisplay"
-                size="xs"
+                size="sm"
                 class="w-16 font-mono"
                 title="Enter a time offset"
                 @change="$emit('offset-change', $event.target.value)"
@@ -37,7 +37,7 @@
                 variant="ghost"
                 color="neutral"
                 icon="i-lucide-align-center-vertical"
-                size="xs"
+                size="sm"
                 title="Smart Sync (Alt+M)"
                 @click="$emit('smart-sync')"
             />
