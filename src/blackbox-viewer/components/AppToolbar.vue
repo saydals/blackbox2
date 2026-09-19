@@ -2,10 +2,7 @@
     <!-- Single top bar: open file + current log name on the left; exports + settings on the right -->
     <div class="toolbar-bar">
         <div class="toolbar-group toolbar-group--start">
-            <LogFileInput size="xs" label="Open log file" @files-selected="$emit('files-selected', $event)" />
-            <span v-if="appStore.logFilename" class="toolbar-filename" :title="appStore.logFilename">
-                {{ appStore.logFilename }}
-            </span>
+            <LogFileInput size="xs" label="Open" @files-selected="$emit('files-selected', $event)" />
         </div>
 
         <div class="toolbar-group">
@@ -17,14 +14,6 @@
             <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('export-csv')">
                 <span class="btn-wrapper"></span>
                 <UButton variant="ghost" color="neutral" label="CSV" icon="i-lucide-file-spreadsheet" size="xs" />
-            </span>
-            <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('export-gpx')">
-                <span class="btn-wrapper"></span>
-                <UButton variant="ghost" color="neutral" label="GPX" icon="i-lucide-map-pin" size="xs" />
-            </span>
-            <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('export-workspaces')">
-                <span class="btn-wrapper"></span>
-                <UButton variant="ghost" color="neutral" label="Export Workspaces" icon="i-lucide-file-json" size="xs" title="Export your workspace configurations to file" />
             </span>
                 <UTooltip :text="videoExportTitle" :delay-duration="300">
                     <span
@@ -48,26 +37,14 @@
                         />
                     </span>
                 </UTooltip>
-                <USeparator orientation="vertical" class="h-4" />
             </template>
             <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('open-settings')">
                 <span class="btn-wrapper"></span>
-                <UButton variant="ghost" color="neutral" icon="i-lucide-settings" size="xs" title="User Settings" />
+                <UButton variant="ghost" color="neutral" label="Setting" icon="i-lucide-settings" size="xs" />
             </span>
             <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('open-keys')">
                 <span class="btn-wrapper"></span>
                 <UButton variant="ghost" color="neutral" icon="i-lucide-keyboard" size="xs" title="Keyboard Shortcuts" />
-            </span>
-            <span class="inline-flex cursor-pointer toolbar-menu-item" @click="$emit('toggle-fullscreen')">
-                <span class="btn-wrapper"></span>
-                <UButton
-                    variant="ghost"
-                    color="neutral"
-                    :icon="graphStore.isFullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
-                    size="xs"
-                    :title="graphStore.isFullscreen ? 'Exit Full Screen (F)' : 'Full Screen (F)'"
-                    :aria-pressed="graphStore.isFullscreen"
-                />
             </span>
         </div>
     </div>
@@ -76,8 +53,6 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { useLogStore } from "../stores/log.js";
-import { useAppStore } from "../stores/app.js";
-import { useGraphStore } from "../stores/graph.js";
 import { probeVideoExport } from "../video_export.js";
 import LogFileInput from "./LogFileInput.vue";
 
@@ -86,16 +61,12 @@ defineEmits([
     "export-bbl",
     "export-csv",
     "export-gpx",
-    "export-workspaces",
     "export-video",
     "open-settings",
     "open-keys",
-    "toggle-fullscreen",
 ]);
 
 const logStore = useLogStore();
-const appStore = useAppStore();
-const graphStore = useGraphStore();
 const videoCapability = ref(null);
 let probeGeneration = 0;
 

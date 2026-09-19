@@ -5,7 +5,9 @@
             <UInput
                 :model-value="appStore.graphTimeDisplay"
                 size="xs"
-                class="w-24 font-mono"
+                class="w-[72px] font-mono"
+                maxlength="8"
+                placeholder="00:00.00"
                 title="Enter a time to jump to"
                 @change="onTimeChange"
             />

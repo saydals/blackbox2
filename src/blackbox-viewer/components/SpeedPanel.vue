@@ -2,49 +2,54 @@
     <div class="toolbar-panel log-playback-rate-panel">
         <h4>Speed</h4>
         <div class="flex items-center gap-1">
-            <USlider
-                v-model="sliderPos"
-                :min="0"
-                :max="200"
-                :step="1"
-                class="w-20"
-                title="Playback speed"
-                @dblclick="$emit('rate-change', 100)"
-            />
-            <UBadge color="neutral" variant="subtle" size="sm" class="font-mono min-w-[42px] justify-center">
-                {{ playbackStore.playbackRate }}%
-            </UBadge>
+            <UButton variant="ghost" color="neutral" size="xs" title="Decrease speed" @click="changeRate(-1)">
+                <span class="font-mono text-base font-bold">-</span>
+            </UButton>
+            <UButton variant="ghost" color="neutral" size="xs" class="min-w-[42px] justify-center" @click="cycleRate">
+                <span class="font-mono">{{ playbackStore.playbackRate }}%</span>
+            </UButton>
+            <UButton variant="ghost" color="neutral" size="xs" title="Increase speed" @click="changeRate(1)">
+                <span class="font-mono text-base font-bold">+</span>
+            </UButton>
         </div>
     </div>
 </template>
 
 <script setup>
-import { computed } from "vue";
 import { usePlaybackStore } from "../stores/playback.js";
 
 const emit = defineEmits(["rate-change"]);
 
 const playbackStore = usePlaybackStore();
 
-// Piecewise-linear mapping: slider midpoint (100) = 100% speed
-// Left half  (0–100)  → 10%–100%
-// Right half (100–200) → 100%–300%
-function posToRate(pos) {
-    if (pos <= 100) {
-        return Math.round(10 + pos * 0.9);
+const STEPS = [10, 25, 50, 75, 100, 150, 200];
+
+function findClosestStepIndex(rate) {
+    let index = 0;
+    let minDiff = Math.abs(STEPS[0] - rate);
+    for (let i = 1; i < STEPS.length; i++) {
+        const diff = Math.abs(STEPS[i] - rate);
+        if (diff < minDiff) {
+            minDiff = diff;
+            index = i;
+        }
     }
-    return Math.round(100 + (pos - 100) * 2);
+    return index;
 }
 
-function rateToPos(rate) {
-    if (rate <= 100) {
-        return Math.round((rate - 10) / 0.9);
-    }
-    return Math.round(100 + (rate - 100) / 2);
+function cycleRate() {
+    const current = playbackStore.playbackRate;
+    const currentIndex = findClosestStepIndex(current);
+    const nextIndex = (currentIndex + 1) % STEPS.length;
+    emit("rate-change", STEPS[nextIndex]);
 }
 
-const sliderPos = computed({
-    get: () => rateToPos(playbackStore.playbackRate),
-    set: (pos) => emit("rate-change", posToRate(pos)),
-});
+function changeRate(direction) {
+    const current = playbackStore.playbackRate;
+    const currentIndex = findClosestStepIndex(current);
+    let nextIndex = currentIndex + direction;
+    if (nextIndex < 0) nextIndex = STEPS.length - 1;
+    if (nextIndex >= STEPS.length) nextIndex = 0;
+    emit("rate-change", STEPS[nextIndex]);
+}
 </script>

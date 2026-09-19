@@ -10,7 +10,7 @@
                 <p class="welcome-tagline">Analyse a recorded log file.</p>
 
                 <div class="welcome-actions">
-                    <LogFileInput size="lg" label="Open log file" @files-selected="$emit('files-selected', $event)" />
+                    <LogFileInput size="lg" label="Open" @files-selected="$emit('files-selected', $event)" />
                 </div>
 
                 <p class="welcome-drop-hint">…or drag and drop a log file anywhere in this window</p>

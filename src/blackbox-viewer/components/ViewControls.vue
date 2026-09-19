@@ -5,15 +5,6 @@
         <div class="flex items-center gap-0.5">
             <UButton
                 variant="ghost"
-                color="neutral"
-                icon="i-lucide-home"
-                size="xs"
-                aria-label="View graph"
-                title="View graph"
-                @click="$emit('view-config')"
-            />
-            <UButton
-                variant="ghost"
                 :color="headerActive ? 'primary' : 'neutral'"
                 icon="i-lucide-info"
                 size="xs"
@@ -104,7 +95,6 @@ defineProps({
 });
 
 defineEmits([
-    "view-config",
     "toggle-header",
     "toggle-table",
     "toggle-video",

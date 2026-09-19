@@ -196,7 +196,7 @@ export function leftPad(string, pad, minLength) {
     return string;
 }
 
-export function formatTime(msec, displayMsec) {
+export function formatTime(msec, displayMsec, displayMsecDigits = 3) {
     // modify function to allow negative times.
     let ms = Math.round(Math.abs(msec));
 
@@ -209,9 +209,14 @@ export function formatTime(msec, displayMsec) {
     const hours = Math.floor(mins / 60);
     mins %= 60;
 
+    // 표시용 소수점 자릿수만 잘라낸다 (버림, 내부 계산은 그대로 유지).
+    const msDigits = Math.max(0, Math.min(3, Math.trunc(displayMsecDigits)));
+    const msDisplay =
+        displayMsec && msDigits > 0 ? `.${leftPad(Math.floor(ms / Math.pow(10, 3 - msDigits)), "0", msDigits)}` : "";
+
     return `${
         (msec < 0 ? "-" : "") + (hours ? `${leftPad(hours, "0", 2)}:` : "") + leftPad(mins, "0", 2)
-    }:${leftPad(secs, "0", 2)}${displayMsec ? `.${leftPad(ms, "0", 3)}` : ""}`;
+    }:${leftPad(secs, "0", 2)}${msDisplay}`;
 }
 
 export function stringLoopTime(loopTime, pid_process_denom, unsynced_fast_pwm, motor_pwm_rate) {

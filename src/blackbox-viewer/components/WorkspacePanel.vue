@@ -2,12 +2,11 @@
     <div class="toolbar-panel log-workspace-panel">
         <h4>Workspace</h4>
 
-        <UDropdownMenu v-model:open="menuOpen" :items="workspaceItems" class="w-full">
+        <UDropdownMenu v-model:open="menuOpen" :items="workspaceItems">
             <UButton
                 variant="outline"
                 color="neutral"
                 size="xs"
-                block
                 class="justify-between font-mono"
                 trailing-icon="i-lucide-chevron-down"
             >

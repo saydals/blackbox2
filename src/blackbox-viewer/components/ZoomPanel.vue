@@ -2,49 +2,54 @@
     <div class="toolbar-panel log-chart-zoom-panel">
         <h4>Zoom</h4>
         <div class="flex items-center gap-1">
-            <USlider
-                v-model="sliderPos"
-                :min="0"
-                :max="200"
-                :step="1"
-                class="w-20"
-                title="Graph zoom level"
-                @dblclick="$emit('zoom-change', 100)"
-            />
-            <UBadge color="neutral" variant="subtle" size="sm" class="font-mono min-w-[42px] justify-center">
-                {{ graphStore.graphZoom }}%
-            </UBadge>
+            <UButton variant="ghost" color="neutral" size="xs" title="Zoom out" @click="changeZoom(-1)">
+                <span class="font-mono text-base font-bold">-</span>
+            </UButton>
+            <UButton variant="ghost" color="neutral" size="xs" class="min-w-[42px] justify-center" @click="cycleZoom">
+                <span class="font-mono">{{ graphStore.graphZoom }}%</span>
+            </UButton>
+            <UButton variant="ghost" color="neutral" size="xs" title="Zoom in" @click="changeZoom(1)">
+                <span class="font-mono text-base font-bold">+</span>
+            </UButton>
         </div>
     </div>
 </template>
 
 <script setup>
-import { computed } from "vue";
 import { useGraphStore } from "../stores/graph.js";
 
 const emit = defineEmits(["zoom-change"]);
 
 const graphStore = useGraphStore();
 
-// Piecewise-linear mapping: slider midpoint (100) = 100% zoom
-// Left half  (0–100)  → 1%–100%
-// Right half (100–200) → 100%–1000%
-function posToZoom(pos) {
-    if (pos <= 100) {
-        return Math.round(1 + pos * 0.99);
+const STEPS = [10, 25, 50, 75, 100, 150, 200];
+
+function findClosestStepIndex(zoom) {
+    let index = 0;
+    let minDiff = Math.abs(STEPS[0] - zoom);
+    for (let i = 1; i < STEPS.length; i++) {
+        const diff = Math.abs(STEPS[i] - zoom);
+        if (diff < minDiff) {
+            minDiff = diff;
+            index = i;
+        }
     }
-    return Math.round(100 + (pos - 100) * 9);
+    return index;
 }
 
-function zoomToPos(zoom) {
-    if (zoom <= 100) {
-        return Math.round((zoom - 1) / 0.99);
-    }
-    return Math.round(100 + (zoom - 100) / 9);
+function cycleZoom() {
+    const current = graphStore.graphZoom;
+    const currentIndex = findClosestStepIndex(current);
+    const nextIndex = (currentIndex + 1) % STEPS.length;
+    emit("zoom-change", STEPS[nextIndex]);
 }
 
-const sliderPos = computed({
-    get: () => zoomToPos(graphStore.graphZoom),
-    set: (pos) => emit("zoom-change", posToZoom(pos)),
-});
+function changeZoom(direction) {
+    const current = graphStore.graphZoom;
+    const currentIndex = findClosestStepIndex(current);
+    let nextIndex = currentIndex + direction;
+    if (nextIndex < 0) nextIndex = STEPS.length - 1;
+    if (nextIndex >= STEPS.length) nextIndex = 0;
+    emit("zoom-change", STEPS[nextIndex]);
+}
 </script>

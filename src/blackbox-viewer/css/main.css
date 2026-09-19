@@ -121,6 +121,20 @@
     background-color: var(--graph-background);
 }
 
+.graph-filename-overlay {
+    position: absolute;
+    top: 6px;
+    left: 10px;
+    font-size: 1.25rem;
+    color: #9ca3af;
+    pointer-events: none;
+    z-index: 5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 60%;
+}
+
 .log-graph-config {
     background-color: var(--surface-100);
     color: var(--text-secondary);
@@ -506,7 +520,8 @@
 }
 
 .log-workspace-panel {
-    width: 200px;
+    width: auto;
+    min-width: 80px;
 }
 
 .video-top-controls,

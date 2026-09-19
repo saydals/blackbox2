@@ -109,6 +109,7 @@ export function updateValuesChart(logStore, graphStore, appStore, userSettings) 
     appStore.graphTimeDisplay = formatTime(
         (logStore.currentBlackboxTime - logStore.flightLog.getMinTime()) / 1000,
         true,
+        2,
     );
     if (graphStore.hasMarker) {
         appStore.statusMarkerOffset = `Marker Offset ${formatTime(

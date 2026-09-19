@@ -31,7 +31,7 @@ defineProps({
     },
     label: {
         type: String,
-        default: "Open log file/video",
+        default: "Open",
     },
 });
 

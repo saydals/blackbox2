@@ -9,11 +9,8 @@
                     @open-settings="onOpenSettings"
                     @open-keys="onOpenKeys"
                     @export-csv="onExportCsv"
-                    @export-gpx="onExportGpx"
                     @export-bbl="onExportBbl"
-                    @export-workspaces="onExportWorkspaces"
                     @export-video="appStore.videoExportDialogOpen = true"
-                    @toggle-fullscreen="onToggleFullscreen"
                 />
                 </div>
 
@@ -27,7 +24,6 @@
                             :sticks-active="graphStore.hasSticks"
                             :analyser-active="graphStore.hasAnalyser"
                             :map-active="graphStore.hasMap"
-                            @view-config="onViewConfig"
                             @toggle-header="onToggleHeader"
                             @toggle-table="onToggleTable"
                             @toggle-video="onToggleVideo"
@@ -64,6 +60,9 @@
                     </div>
                     <div id="screenshot-frame" class="graph-row">
                         <div id="log-graph" class="log-graph">
+                            <div v-if="appStore.logFilename" class="graph-filename-overlay" :title="appStore.logFilename">
+                                {{ appStore.logFilename }}
+                            </div>
                             <video id="logVideo"></video>
                             <canvas width="200" height="100" id="graphCanvas"></canvas>
                             <canvas width="0" height="0" id="craftCanvas"></canvas>
@@ -197,30 +196,12 @@ function onOpenKeys() {
     appStore.keysDialogOpen = true;
 }
 
-function onToggleFullscreen() {
-    graphStore.toggleFullscreen();
-}
-
 function onExportCsv() {
     appStore.exportCsv?.();
 }
 
 function onExportBbl() {
     appStore.bblExportDialogOpen = true;
-}
-
-function onExportGpx() {
-    appStore.exportGpx?.();
-}
-
-function onExportWorkspaces() {
-    appStore.exportWorkspaces?.();
-}
-
-function onViewConfig() {
-    appStore.headerDialogOpen = false;
-    graphStore.hasTableOverlay = false;
-    graphStore.hasConfigOverlay = false;
 }
 
 function onToggleHeader() {
