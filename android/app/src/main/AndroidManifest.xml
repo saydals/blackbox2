@@ -15,7 +15,18 @@
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="userLandscape">
+
+            <!-- Large-screen devices (Android 16+ targeting SDK 36, sw >= 600dp)
+                 ignore fixed orientations by default; opt out so the viewer stays
+                 landscape (the UI is desktop-sized and unusable in portrait). -->
+            <property
+                android:name="android.app.PROPERTY_COMPAT_ALLOW_ORIENTATION_OVERRIDE"
+                android:value="false" />
+            <property
+                android:name="android.app.PROPERTY_COMPAT_ALLOW_DISPLAY_ASPECT_RATIO_OVERRIDE"
+                android:value="false" />
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

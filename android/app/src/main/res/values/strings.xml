@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Betaflight Blackbox Viewer</string>
-    <string name="title_activity_main">Betaflight Blackbox Viewer</string>
-    <string name="package_name">com.betaflight.blackboxviewer</string>
-    <string name="custom_url_scheme">com.betaflight.blackboxviewer</string>
+    <string name="app_name">Rotorflight Blackbox Viewer</string>
+    <string name="title_activity_main">Rotorflight Blackbox Viewer</string>
+    <string name="package_name">com.rotorflight.blackboxviewer</string>
+    <string name="custom_url_scheme">com.rotorflight.blackboxviewer</string>
 </resources>

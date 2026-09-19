@@ -6,6 +6,23 @@
     overflow-y: visible;
 }
 
+/*
+ * Android 15+ forces edge-to-edge, so the system bars (gesture/navigation
+ * bar) draw over the app. Capacitor's SystemBars plugin hides them and
+ * injects --safe-area-inset-* variables into the WebView. Bottom-fixed UI
+ * (seek bar / timeline, status bar) uses the variable so the timeline stays
+ * fully visible even if the bar reappears transiently (swipe, fallback) or
+ * hiding is unavailable. A static fallback keeps the layout usable before
+ * the plugin injects the variables.
+ */
+:root {
+    --safe-area-inset-top: 0px;
+    --safe-area-inset-right: 0px;
+    --safe-area-inset-bottom: 0px;
+    --safe-area-inset-left: 0px;
+    --bottom-bar-clearance: max(0.5em, var(--safe-area-inset-bottom));
+}
+
 .blackbox-viewer-root a:hover {
     text-decoration: none;
     color: inherit;
@@ -91,8 +108,8 @@
 
 .app-main-pane {
     position: fixed;
-    top: 15px;
-    bottom: 100px;
+    top: calc(15px + var(--safe-area-inset-top));
+    bottom: calc(100px + var(--safe-area-inset-bottom));
     inset-inline-start: 0;
     inset-inline-end: 0;
     padding-inline-start: 15px;
@@ -433,9 +450,9 @@
 .blackbox-viewer-root.has-log .graph-row {
     display: flex;
     position: fixed;
-    top: 85px;
+    top: calc(85px + var(--safe-area-inset-top));
     width: calc(100% - 30px);
-    bottom: 96px;
+    bottom: calc(96px + var(--safe-area-inset-bottom));
 }
 
 .blackbox-viewer-root.has-video .log-graph {
@@ -551,9 +568,9 @@
 .blackbox-viewer-root.has-log .log-seek-bar {
     display: block;
     position: fixed;
-    bottom: 32px;
-    padding-inline-start: 15px;
-    padding-inline-end: 15px;
+    bottom: var(--bottom-bar-clearance);
+    padding-inline-start: calc(15px + var(--safe-area-inset-left));
+    padding-inline-end: calc(15px + var(--safe-area-inset-right));
 }
 
 .log-workspace-panel {
@@ -632,7 +649,7 @@
 
 .vue-statusbar {
     position: fixed;
-    bottom: 0;
+    bottom: var(--safe-area-inset-bottom);
     width: 100%;
     z-index: 100;
 }
