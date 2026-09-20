@@ -123,7 +123,7 @@
                                     value-key="value"
                                     size="xs"
                                     :ui="{ content: 'z-[3002] max-h-72' }"
-                                    :search-input="{ placeholder: 'Search fields...' }"
+                                    :search-input="false"
                                     @update:model-value="
                                         onFieldChange(graph, field);
                                         emitUpdate();
