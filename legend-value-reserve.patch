@@ -1,0 +1,55 @@
+diff --git a/src/blackbox-viewer/css/main.css b/src/blackbox-viewer/css/main.css
+index 3eae720..7ed85a2 100644
+--- a/src/blackbox-viewer/css/main.css
++++ b/src/blackbox-viewer/css/main.css
+@@ -40,6 +40,25 @@
+      * uniform 15px frame on all four sides. Tune this single value to taste.
+      */
+     --fullscreen-graph-gap: 15px;
++
++    /*
++     * Legend value-width reserve — extra flex-basis handed to the Legend
++     * panel (.log-graph-config) so the right-floated live value
++     * (.graph-legend-field-value) never runs out of horizontal room and
++     * drops below the visibility eye icon whenever its digits grow during
++     * playback ("99.9" -> "100.0", "-9.9" -> "-10.0", ...). The value text
++     * updates every frame, so without a fixed reserve the number bounces
++     * between the first line and the line below (CSS float drop,
++     * CSS 2.1 §9.5.1).
++     *
++     * 32px = the width of 4 digits at the value font size:
++     *   .log-graph-legend font-size 85% × 16px root = 13.6px,
++     *   digit advance ≈ 0.6em ≈ 8px  →  4 × 8 = 32px.
++     * The graph (.log-graph, flex-grow: 1) gives up exactly this width,
++     * so widening the Legend shrinks the graph by the same amount.
++     * Tune this single value to taste (24px = 3 digits, 40px = 5 digits).
++     */
++    --legend-value-reserve: 32px;
+ }
+ 
+ .blackbox-viewer-root a:hover {
+@@ -231,7 +250,12 @@
+        resized the panel every 250 ms during playback, which resized the graph
+        canvas box, which fired the canvas ResizeObserver and cleared/redrew
+        the canvas several times per second — visible flicker while playing. */
+-    flex: 0.02 1 200px;
++    /* 200px panel + --legend-value-reserve: the reserve keeps the floated
++       live value on the first line even at its widest (4 extra digits).
++       The basis must stay content-independent — see the flicker note
++       above; the reserve is a fixed constant, so the panel width never
++       follows the live values. */
++    flex: 0.02 1 calc(200px + var(--legend-value-reserve));
+     flex-direction: column;
+     display: none;
+ }
+@@ -488,6 +512,10 @@
+ 
+ .graph-legend-field-value {
+     float: inline-end;
++    /* Never fragment inside the float (a "100.0 %" value breaking into
++       "100.0" / "%" on separate lines): the value travels as one
++       unbreakable line, and --legend-value-reserve gives it the room. */
++    white-space: nowrap;
+ }
+ 
+ .graph-legend-field-settings {
