@@ -715,24 +715,28 @@ GraphConfig.getDefaultCurveForField = function (flightLog, fieldName) {
             const index = fieldName.match(/^.+\[(\d+)\]$/)?.[1];
             const rateIndex = Number(index);
             if (Number.isInteger(rateIndex) && rateIndex < 3) {
-                const raw = sysConfig["rates"]?.[rateIndex];
-                if (raw && raw > 0) {
-                    return minMaxPower1(-raw * 10, raw * 10);
+                if (sysConfig["rates_type"] === 4 || sysConfig["rates_type"] === 5) {
+                    const raw = sysConfig["rates"]?.[rateIndex];
+                    if (raw && raw > 0) {
+                        return minMaxPower1(-raw * 10 * 1.2, raw * 10 * 1.2);
+                    }
                 }
-                return minMaxPower1(-500, 500);
+                return minMaxPower1(-500 * 1.2, 500 * 1.2);
             }
-            return minMaxPower1(-500, 500);
+            return minMaxPower1(-500 * 1.2, 500 * 1.2);
         } else if (fieldName.match(/^axisError\[/) || fieldName.match(/^rcCommands\[[0-2]\]/) || fieldName.match(/^setpoint\[[0-2]\]/)) {
             const index = fieldName.match(/^.+\[(\d+)\]$/)?.[1];
             const rateIndex = Number(index);
             if (Number.isInteger(rateIndex) && rateIndex < 3) {
-                const raw = sysConfig["rates"]?.[rateIndex];
-                if (raw && raw > 0) {
-                    return minMaxPower1(-raw * 10, raw * 10);
+                if (sysConfig["rates_type"] === 4 || sysConfig["rates_type"] === 5) {
+                    const raw = sysConfig["rates"]?.[rateIndex];
+                    if (raw && raw > 0) {
+                        return minMaxPower1(-raw * 10 * 1.2, raw * 10 * 1.2);
+                    }
                 }
-                return minMaxPower1(-500, 500);
+                return minMaxPower1(-500 * 1.2, 500 * 1.2);
             }
-            return minMaxPower1(-500, 500);
+            return minMaxPower1(-500 * 1.2, 500 * 1.2);
         } else if (fieldName.match(/^setpoint\[3\]/) || fieldName.match(/^rcCommands\[3\]/)) {
             return minMaxPower1(-15, 15);
         } else if (fieldName.match(/^axis.+\[/) || fieldName === "GPS_speed") {

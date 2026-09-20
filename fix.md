@@ -1,9 +1,10 @@
-# fix.md — 그래프 영역 전체화면 토글: 폰 화면에서 그래프가 너무 낮게 그려지는 문제 해결
+# fix.md — 그래프 전체화면 하단 여백 문제 해결 (v2 · 자연스러운 간격 조정 버전)
 
 > 대상 저장소: [`saydals/blackbox2`](https://github.com/saydals/blackbox2)
-> 기준 커밋: `5e6f6fa` ("Fix graph/legend colors and playback flicker; add fix analysis doc")
-> 수정 파일: `src/blackbox-viewer/App.vue`, `src/blackbox-viewer/css/main.css`
-> 동반 파일: `fix.patch` (본 문서 4장의 DIFF와 동일 — 저장소 루트에서 `git apply fix.patch` 로 바로 적용 가능)
+> 기준 커밋: `21e697d` ("Fix rates fallback to +/-500 when header rates are 0")
+> 수정 파일: `src/blackbox-viewer/css/main.css` (1개 파일, CSS만 수정 — JS 변경 없음)
+> 동반 파일: `fullscreen-bottom-margin.patch` (본 문서 4장의 DIFF와 동일 — 저장소 루트에서 `git apply fullscreen-bottom-margin.patch` 로 바로 적용 가능)
+> 문서 버전: **v2** — v1(`margin-top/bottom: 1em` 고정)을 **간격 조정 가능한 자연스러운 버전**으로 개정. 근본 원인 분석과 하단 여백 부여 방향은 v1과 동일하며, 여백 값과 구현 방식이 바뀌었다.
 
 ---
 
@@ -11,284 +12,81 @@
 
 | # | 증상 | 근본 원인 | 수정 위치 | 성격 |
 |---|------|-----------|-----------|------|
-| A | 표준 스마트폰 화면에서 `.log-graph` (그래프 캔버스/비디오 영역)가 너무 낮게 그려짐 | `video-top-controls`(상단 헤더) + `log-seek-bar`(하단 타임라인) + `.vue-statusbar`(상태바)가 각각 `position: fixed` 로 뷰포트 위·아래를 차지하고, `.graph-row` 가 그 사이 남는 높이만 차지. 폰 가로 360px 높이에서 헤더 64px + 타임라인 58px + 상태바 24px + 여백을 제외하면 그래프에 약 200px 정도만 남아 시인성이 크게 떨어짐 | `main.css` | 레이아웃 제약 |
-| B | 그래프를 빠르게 크게 보거나 값 확인을 위한 전체화면 진입 방법이 없음 | `graphStore.isFullscreen` 상태, `toggleFullscreen()` 액션, `keyboard_handler.js` 의 `F`/`Esc` 단축키, `App.vue` 의 `is-fullscreen` 클래스 토글까지 모두 준비되어 있으나, (1) `.is-fullscreen` 클래스에 대한 **레이아웃 CSS 규칙이 한 줄도 없고**, (2) 토글을 호출할 **UI 버튼이 없음**. 즉 키보드 단축키로만 작동하고 폰에서는 사실상 사용 불가 | `App.vue` + `main.css` | 누락 기능 |
-| C | 상단 왼쪽에 파일명은 보이지만 그래프 영역 안을 클릭할 방법이 없음 | `.graph-filename-overlay` 가 `pointer-events: none` 으로 되어 있어 파일명을 클릭해도 아무 일도 일어나지 않음. 전체화면 아이콘을 같은 위치에 두려면 클릭 가능한 별도 엘리먼트가 필요 | `App.vue` + `main.css` | 누락 UI |
+| A | 그래프 영역 왼쪽 위의 밝은 회색 전체화면 토글(`.graph-fullscreen-toggle`)로 전환하면 **상단에는 약 16px 여백**이 보이는데, **하단은 그래프 캔버스/비디오(`#graphCanvas`, `#logVideo`)가 뷰포트 아래 끝에 완전히 붙어버림**(여백 0). 표준 화면 비율 스마트폰에서 특히 뚜렷함 | `.graph-row` 의 기본 규칙 `margin-top: 1em`(main.css 134행)이 전체화면 레이아웃으로 **그대로 새어 들어감(leak)**. `.is-fullscreen` 규칙은 `top`/`bottom` 오프셋만 재정의했을 뿐 margin 은 재정의하지 않았음. `position: fixed` 요소에 `top`/`bottom`을 모두 지정하면 **마진 박스(margin box)**가 두 오프셋 사이에 놓이므로 `margin-top` 만큼 위쪽이 벌어지고, `margin-bottom: 0` 인 아래쪽은 뷰포트에 밀착함 | `main.css` ① `:root` 에 튜닝용 변수 `--fullscreen-graph-gap` 신설 ② `.blackbox-viewer-root.is-fullscreen.* .graph-row` 규칙이 상·하 margin 을 변수로 대칭 선언 | CSS 마진 비대칭 (박스 모델 미반영) |
 
 **요구사항 (사용자 지시):**
+1. 전체화면에서 하단에도 상단에서 보이는 정도의 여백을 부여한다.
+2. **(v2 요구)** 그 여백이 화면에서 "자연스럽게" 보이도록 간격 값을 다듬고, 이후 기기·취향에 따라 쉽게 조정할 수 있는 구조로 만든다.
+3. 일반(비전체화면) 레이아웃은 절대 건드리지 않는다.
 
-1. 표준 스마트폰 화면에서 `.log-graph` (그래프 캔버스/비디오 영역) 가 너무 낮게 그려지는 문제를 해결.
-2. 그래프 영역 **왼쪽 위**에 **밝은 회색** 전체화면 아이콘을 배치. 파일명은 그대로 표시.
-3. 아이콘 클릭 → 상단 헤더 줄(`video-top-controls`) 과 하단 타임라인(`log-seek-bar`)이 사라지고, **높이 전체**를 그래프 영역(`.log-graph`)과 `LegendPanel`이 사용.
-4. 다시 클릭 → 헤더와 타임라인이 다시 나타남.
-5. 밝은 회색 전체화면 아이콘을 누르면 헤더·타임라인이 사라지거나 나타남 (토글).
-6. **(추가 요구)** 전체화면 진입 시 **상태바(`.vue-statusbar`)도 함께 숨겨** 진짜 풀스크린(상단 안전영역 ~ 하단 안전영역)을 확보한다.
+### v1 → v2 무엇이 바뀌었나
 
----
-
-## 1. 현재 상태 점검 (수정 전)
-
-### 1.1 이미 존재하는 인프라
-
-이미 다음의 토글 인프라는 구비되어 있었습니다:
-
-```js
-// src/blackbox-viewer/stores/graph.js (line 55, 173–176, 229, 252)
-const isFullscreen = ref(false);
-function toggleFullscreen() {
-    isFullscreen.value = !isFullscreen.value;
-    nextTick(() => requestAnimationFrame(() => updateCanvasSize.value?.()));
-}
-// → export: isFullscreen, toggleFullscreen
-```
-
-```js
-// src/blackbox-viewer/keyboard_handler.js (line 236–241, 296–304)
-f(e, shifted) {
-    if (!shifted) {
-        graphStore.toggleFullscreen();   // F 키로 전체화면 진입
-        e.preventDefault();
-    }
-},
-// ...
-case "Escape":
-    if (!graphStore.isFullscreen || ...) return false;
-    graphStore.toggleFullscreen();        // Esc 키로 전체화면 종료
-```
-
-```vue
-// src/blackbox-viewer/App.vue (line 165)
-cl.toggle("is-fullscreen", graphStore.isFullscreen);   // viewer root 에 클래스 토글
-```
-
-**그러나** `is-fullscreen` 클래스에 대응하는 **레이아웃 CSS 규칙이 없었고**, **UI 버튼도 없었습니다.** 결과적으로 키보드 단축키를 눌러도 `is-fullscreen` 클래스만 붙을 뿐 화면 레이아웃은 전혀 변하지 않았습니다.
-
-### 1.2 현재 레이아웃 (`main.css` 기준)
-
-```css
-:root {
-    --toolbar-height: 76px;     /* ≤1020px: 64px */
-    --statusbar-height: 1.5rem;  /* 24px */
-    --seekbar-height: calc(50px + 0.5em);  /* ~58px */
-}
-
-.video-top-controls { position: fixed; top: var(--safe-area-inset-top); min-height: var(--toolbar-height); }
-.log-seek-bar       { position: fixed; bottom: calc(var(--statusbar-height) + var(--safe-area-inset-bottom)); }
-.vue-statusbar      { position: fixed; bottom: var(--safe-area-inset-bottom); height: var(--statusbar-height); }
-
-.graph-row {
-    position: fixed;
-    top:    calc(var(--toolbar-height) + 6px + var(--safe-area-inset-top));
-    bottom: calc(var(--statusbar-height) + var(--seekbar-height) + 0.5em + var(--safe-area-inset-bottom));
-}
-```
-
-폰 가로 360px 높이(안전영역 0 가정)에서 계산:
-- `video-top-controls` → 64px (상단)
-- `.graph-row` 의 `top` = 64 + 6 = **70px** 부터 시작
-- `.graph-row` 의 `bottom` = 24 + 58 + 8 = **90px** (하단에서부터) 까지
-- 즉 `.graph-row` 의 실제 높이 = 360 − 70 − 90 = **200px**
-
-→ 그래프 캔버스 + LegendPanel 이 200px 안에서 flex 로 나뉘어 그려지므로 그래프 본체는 사실상 130~150px 수준. 헬기 진동 분석, 주파수 스펙트럼 확인 등에는 턱없이 부족한 높이입니다.
-
-### 1.3 `.graph-filename-overlay` 현재 상태
-
-```css
-.graph-filename-overlay {
-    position: absolute;
-    top: 6px;
-    left: 10px;       /* 좌상단 고정 */
-    color: #9ca3af;   /* 밝은 회색 — 톤 유지 대상 */
-    pointer-events: none;   /* ← 파일명 클릭 불가 */
-    z-index: 5;
-    max-width: 60%;
-}
-```
-
-파일명은 좌상단에 밝은 회색으로 이미 표시되어 있습니다. 사용자 요구사항은 이 파일명 왼쪽에 **전체화면 아이콘**을 추가하고, 그 아이콘만 클릭 가능하게 만드는 것입니다.
+| 항목 | v1 | v2 (채택) | 바꾼 이유 |
+|------|----|-----------|-----------|
+| 여백 값 | `1em` (16px) | **`15px`** | 전체화면에서 그래프 행의 좌우 바깥 여백이 이미 15px 이다. 상·하도 15px 로 맞추면 **사방 15px 균일 프레임**이 되어 시각적으로 가장 자연스럽다 (§3.1) |
+| 구현 방식 | 규칙 안에 `margin: 1em` 하드코딩 | **`:root` 변수 `--fullscreen-graph-gap` 한 줄 튜닝** | 코드베이스 관례(`:root` fixed-chrome metrics + 폰 미디어쿼리 오버라이드)와 일치. 값 조정 시 규칙 본문을 건드리지 않음 (§3.2) |
+| 상단 여백 | 16px | 15px | 1px 축소. 좌우 여백(15px)과의 정합이 우선 — "상단만큼"이라는 요구의 본질은 대칭이지 정확히 16px 가 아니므로 문제없음 |
 
 ---
 
-## 2. 설계 — 수정 방향
+## 1. 재현 조건과 증상
 
-### 2.1 전체 흐름
+### 1.1 재현 조건
 
-```
-[그래프 영역 좌상단]
-  ┌──────────────────────────────────────────┐
-  │ ⛶  log_001.BBL                          │  ← 밝은 회색 아이콘 + 파일명
-  │                                         │
-  │         (그래프 캔버스)                  │
-  │                                         │
-  └──────────────────────────────────────────┘
-        ⬆ 클릭
-        │
-        ▼
-  graphStore.toggleFullscreen()
-        │
-        ▼
-  isFullscreen.value = !isFullscreen.value
-        │
-        ▼
-  nextTick → requestAnimationFrame → updateCanvasSize()  (이미 구현됨)
-        │
-        ▼
-  App.vue watchEffect 가 .is-fullscreen 클래스를
-  #blackbox-viewer-root 에 토글 (이미 구현됨, line 165)
-        │
-        ▼
-  main.css 의 .is-fullscreen.* 규칙이
-    ① .video-top-controls → display: none
-    ② .log-seek-bar       → display: none
-    ③ .vue-statusbar      → display: none
-    ④ .graph-row → top:safe-area-top / bottom:safe-area-bottom 재배치
-  (← 신규 추가)
-        │
-        ▼
-  그래프 + LegendPanel 이 빈 공간을 흡수 → 진짜 풀스크린
+1. `.bbl` 로그(또는 동영상)를 연다 — `has-log`/`has-video` 클래스가 붙은 상태.
+2. 그래프 영역 왼쪽 위의 밝은 회색 전체화면 아이콘(`.graph-fullscreen-toggle`)을 누르거나 `F` 키를 누른다. `graphStore.toggleFullscreen()` → viewer root 에 `is-fullscreen` 클래스가 부여된다.
+3. 표준 화면 비율 스마트폰(또는 DevTools 모바일 뷰포트, 예: 360×640)에서 관찰한다.
+
+### 1.2 증상 (수정 전)
+
+```text
+┌──────────────────────────────┐ ─┐
+│ ↕ ⬌ (16px 여백 — margin-top)  │  │ ← 상단: 여백 있음 ("약간의 여백")
+├──────────────────────────────┤ ─┘
+│                              │
+│      그래프 캔버스 / 비디오      │
+│                              │
+│                              │
+└──────────────────────────────┘ ─┐
+                                   │ ← 하단: 여백 0px, 뷰포트에 밀착
+────────────────────────────────── ─┘ (화면 하단 끝)
 ```
 
-### 2.2 상태바(`.vue-statusbar`)도 숨기는 이유
+일반 모드(전체화면 해제)에서는 상단 헤더(`video-top-controls`) 아래 22px(6px + 1em), 하단 타임라인(`log-seek-bar`) 위 8px(0.5em)의 간격이 각각 존재하므로 문제가 없다. 비대칭은 **전체화면 진입 시에만** 나타난다.
 
-기본 설계에서는 상태바를 남겨두는 방안도 고려했으나, 사용자가 추가로 "상태바까지 숨기는 버전"을 요청했습니다. 상태바가 차지하는 24px + 0.5em 의 하단 공간을 회수하면 폰 가로 360px 높이에서 그래프 영역이 약 200px → **~360px**(안전영역 0 가정 시 거의 뷰포트 전체)로 확장됩니다. 루프 정보/북마크 버튼/플라이트 모드 표시는 전체화면 종료 후 다시 보이므로, 분석 중에는 그래프 시인성을 극대화하는 쪽이 우선순위가 높습니다.
+### 1.3 수정 후 목표 상태 (v2)
 
-### 2.3 왜 `!important` 를 쓰지 않는가
+```text
+15px                                  15px ─┐
+┌─────────────────────────────────────────┐   │
+│   ↑ 15px (--fullscreen-graph-gap)       │  ─┘ 상단
+│ ┌─────────────────────────────────────┐ │
+│ │                                     │ │
+15px →│        그래프 캔버스 / 비디오          │← 15px  ← 좌우 거터와 동일
+│ │                                     │ │
+│ └─────────────────────────────────────┘ │
+│   ↓ 15px (--fullscreen-graph-gap)       │  ─┐ 하단
+└─────────────────────────────────────────┘   │
+                                      15px ─┘
+```
 
-기존 노출 규칙의 선택자는 `.blackbox-viewer-root.has-log .video-top-controls` (클래스 2개 = 명시도 `0,2,1`).
-새 규칙의 선택자는 `.blackbox-viewer-root.is-fullscreen.has-log .video-top-controls` (클래스 3개 = 명시도 `0,3,1`).
-명시도가 더 높으므로 `!important` 없이도 자연스럽게 우선 적용됩니다. 이는 기존 코드베이스가 `!important` 를 거의 사용하지 않는 스타일(`rg "!important" src/blackbox-viewer/css/main.css` → 2건)과 일관됩니다.
-
-### 2.4 아이콘: `i-lucide-maximize-2` / `i-lucide-minimize-2`
-
-저장소의 `SpectrumAnalyser.vue` 가 이미 동일한 아이콘 쌍을 "analyser 전체화면" 토글에 사용하고 있습니다. 일관성을 위해 같은 아이콘을 사용하되, 여기서는 **상태에 따라 아이콘을 스왑**(`:name="isFullscreen ? 'minimize-2' : 'maximize-2'"`)하여 현재 상태가 버튼에 시각적으로 드러나도록 합니다. 아이콘 색상은 `#9ca3af` (기존 파일명 텍스트와 동일한 밝은 회색)로, hover/focus 시 `#d1d5db` 로 살짝 밝아집니다.
-
-### 2.5 파일명 오버레이 위치 조정
-
-기존 `.graph-filename-overlay`는 `left: 10px` 에 있었습니다. 28px 폭의 토글 버튼이 `left: 10px` 에 들어가면(즉 `10~38px` 대역을 차지) 파일명은 `left: 42px` 로 밀어야 겹치지 않습니다. 동시에 `max-width` 도 32px 줄여(`60% → calc(60% - 32px)`) 폰에서 파일명이 우측으로 넘치지 않게 합니다.
+상·하·좌·우 네 변의 바깥 여백이 모두 15px 로 동일해진다.
 
 ---
 
-## 3. 수정 내용 — 파일별 상세
+## 2. 원인 분석
 
-### 3.1 `src/blackbox-viewer/App.vue`
+### 2.1 전체화면 레이아웃 구조
 
-`.log-graph` div 내부, 파일명 오버레이 **앞**에 `<button class="graph-fullscreen-toggle">` 을 추가합니다. `v-if="appStore.logFilename"` 로 로그가 로드된 상태에서만 노출 (파일명 오버레이와 동일 조건). `graphStore.toggleFullscreen()` 을 직접 호출합니다.
-
-```vue
-<div id="log-graph" class="log-graph">
-    <!-- 그래프 영역 전체화면 토글. 좌상단, 파일명 오버레이 바로 왼쪽.
-         클릭 시 viewer root 의 .is-fullscreen 클래스가 토글되고,
-         main.css 의 .is-fullscreen.* 규칙이 헤더/타임라인을 숨기고
-         .graph-row 를 전체 높이로 확장한다. -->
-    <button
-        v-if="appStore.logFilename"
-        type="button"
-        class="graph-fullscreen-toggle"
-        :class="{ 'is-active': graphStore.isFullscreen }"
-        :title="graphStore.isFullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen (F)'"
-        :aria-label="graphStore.isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
-        :aria-pressed="graphStore.isFullscreen"
-        @click="graphStore.toggleFullscreen()"
-    >
-        <UIcon
-            :name="graphStore.isFullscreen ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
-            class="size-5"
-        />
-    </button>
-    <div v-if="appStore.logFilename" class="graph-filename-overlay" :title="appStore.logFilename">
-        {{ appStore.logFilename }}
-    </div>
-    ...
-</div>
-```
-
-이미 `graphStore`와 `appStore`가 setup script 상단에 임포트되어 있으므로 추가 import 는 필요 없습니다. `UIcon` 은 Nuxt UI 자동 임포트 대상(`auto-imports.d.ts`, `components.d.ts` 참조)이고 `i-lucide-*` 아이콘은 다른 컴포넌트(`LegendPanel.vue`, `SpectrumAnalyser.vue`)에서 이미 같은 패턴으로 사용 중입니다.
-
-### 3.2 `src/blackbox-viewer/css/main.css`
-
-#### (1) `.graph-filename-overlay` 위치 조정
+전체화면 진입 시 `main.css` 의 `.is-fullscreen` 규칙들이 다음을 수행한다:
 
 ```css
-/* BEFORE */
-.graph-filename-overlay {
-    position: absolute;
-    top: 6px;
-    left: 10px;
-    ...
-    max-width: 60%;
-}
+/* main.css — 세 개의 고정 UI 스트립을 숨김 */
+.blackbox-viewer-root.is-fullscreen.has-log .video-top-controls { display: none; }  /* 상단 헤더 */
+.blackbox-viewer-root.is-fullscreen.has-log .log-seek-bar       { display: none; }  /* 하단 타임라인 */
+.blackbox-viewer-root.is-fullscreen.has-log .vue-statusbar      { display: none; }  /* 상태바 */
 
-/* AFTER */
-.graph-filename-overlay {
-    position: absolute;
-    top: 6px;
-    /* 전체화면 토글 버튼이 10–38px 대역을 차지하므로 파일명을 그 오른쪽으로 밈 */
-    left: 42px;
-    ...
-    max-width: calc(60% - 32px);   /* 32px 만큼 줄여 폰에서 넘침 방지 */
-}
-```
-
-#### (2) `.graph-fullscreen-toggle` 버튼 신규 스타일
-
-```css
-.graph-fullscreen-toggle {
-    position: absolute;
-    top: 6px;
-    left: 10px;          /* 기존 파일명 자리 */
-    z-index: 6;          /* 파일명(z:5) 위 */
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    background: transparent;
-    border: 0;
-    color: #9ca3af;      /* 밝은 회색 — 기존 파일명 텍스트와 동일 톤 */
-    cursor: pointer;
-    border-radius: 4px;
-    pointer-events: auto;   /* 파일명 오버레이(pointer-events:none) 와 분리 */
-    transition: color 120ms ease, background-color 120ms ease;
-}
-
-.graph-fullscreen-toggle:hover,
-.graph-fullscreen-toggle:focus-visible {
-    color: #d1d5db;
-    background-color: rgba(127, 127, 127, 0.18);
-    outline: none;
-}
-
-.graph-fullscreen-toggle.is-active { color: #e5e7eb; }   /* 전체화면 진입 중 약간 더 밝게 */
-
-.blackbox-viewer-root.dark .graph-fullscreen-toggle:hover,
-.blackbox-viewer-root.dark .graph-fullscreen-toggle:focus-visible {
-    background-color: rgba(255, 255, 255, 0.08);   /* 다크 테마 hover 대비 */
-}
-```
-
-#### (3) `.is-fullscreen` 레이아웃 규칙 신규 추가
-
-```css
-/* ① 상단 헤더 숨김 */
-.blackbox-viewer-root.is-fullscreen.has-log .video-top-controls,
-.blackbox-viewer-root.is-fullscreen.has-video .video-top-controls {
-    display: none;
-}
-
-/* ② 하단 타임라인 숨김 */
-.blackbox-viewer-root.is-fullscreen.has-log .log-seek-bar,
-.blackbox-viewer-root.is-fullscreen.has-video .log-seek-bar {
-    display: none;
-}
-
-/* ③ 상태바 숨김 — 진짜 풀스크린(상단 안전영역 ~ 하단 안전영역) 확보 */
-.blackbox-viewer-root.is-fullscreen.has-log .vue-statusbar,
-.blackbox-viewer-root.is-fullscreen.has-video .vue-statusbar {
-    display: none;
-}
-
-/* ④ 그래프 행을 상단 안전영역 ~ 하단 안전영역까지 확장 */
+/* main.css — 그래프 행을 safe-area 에만 붙임 (수정 전) */
 .blackbox-viewer-root.is-fullscreen.has-log .graph-row,
 .blackbox-viewer-root.is-fullscreen.has-video .graph-row {
     top: var(--safe-area-inset-top);
@@ -296,217 +94,234 @@ cl.toggle("is-fullscreen", graphStore.isFullscreen);   // viewer root 에 클래
 }
 ```
 
-`LegendPanel`(`.log-graph-config`)은 이미 `.graph-row` 의 flex 형제라 별도 규칙 없이 자동으로 같이 확장됩니다. `graphStore.toggleFullscreen()` 내부의 `nextTick(() => requestAnimationFrame(() => updateCanvasSize.value?.()))` 호출이 그래프 캔버스 크기도 자동 재측정하므로 캔버스가 새 높이에 맞춰 재描画됩니다.
+숨겨진 헤더·타임라인·상태바의 높이를 `.graph-row` 가 흡수하는 구조다. 문제는 이 규칙이 `top`/`bottom` **오프셋**만 다룬다는 점에 있다.
+
+### 2.2 핵심 — fixed 요소와 margin 의 상호작용 (CSS 2.1 §10.3.7)
+
+`position: fixed`(절대 위치의 일종) 비치환 요소에 `top`, `bottom` 이 모두 지정되고 `height: auto` 이면, 브라우저는 다음 제약식을 풀어 높이를 정한다:
+
+```text
+top + margin-top + height + margin-bottom + bottom = 뷰포트(컨테이닝 블록) 높이
+```
+
+즉 오프셋 사이에 놓이는 것은 **마진 박스**이지, 보이는 박스(border box)가 아니다. 그 결과:
+
+- **보이는 박스의 상단 간격 = `top` 오프셋 + `margin-top`**
+- **보이는 박스의 하단 간격 = `bottom` 오프셋 + `margin-bottom`**
+
+한편 `.graph-row` 의 기본 규칙(main.css 134–137행)은:
+
+```css
+.graph-row {
+    margin-top: 1em;   /* ← 이 값이 전체화면에서도 살아있음 (루트 폰트 16px 기준 16px) */
+    display: none;
+}
+```
+
+`.is-fullscreen` 규칙은 margin 을 하나도 재정의하지 않았으므로 `margin-top: 1em` 이 그대로 적용되고, `margin-bottom` 은 어디에서도 선언된 적이 없어 `0` 이다.
+
+### 2.3 숫자로 확인 (표준 스마트폰 기준)
+
+표준 화면 스마트폰에서는 두 실행 환경 모두 safe-area inset 이 사실상 0 이다:
+
+- **브라우저 / PWA**: `env(safe-area-inset-*)` = 0 (노치·펀치홀 없음).
+- **Capacitor Android 앱**: `MainActivity.applyImmersiveStickyMode()` 가 sticky immersive 로 시스템 바를 숨기므로, WebView 에 주입되는 `--safe-area-inset-*` 도 0.
+
+따라서 수정 전 계산은:
+
+```text
+상단 간격 = --safe-area-inset-top (0px)   + margin-top (1em = 16px) = 16px  ← "약간의 여백"으로 관측됨
+하단 간격 = --safe-area-inset-bottom (0px) + margin-bottom (0px)    =  0px  ← "꽉 채움"으로 관측됨
+```
+
+사용자가 본 "상단엔 여백, 하단엔 여백 없음"의 정체는 safe-area 가 아니라 **기본 규칙에서 새어 들어온 `margin-top: 1em`** 이다. 참고로 노치/제스처바가 있는 기기라면 `상단 = inset-top + 16px, 하단 = inset-bottom + 0` 이 되어 inset 크기와 무관하게 **같은 비대칭**이 재현된다.
+
+### 2.4 `margin-top: 1em` 은 원래 어떤 값인가
+
+일반 모드에서는 이 마진이 의도된 값이다. 일반 모드의 `.graph-row` 는 `top: calc(var(--toolbar-height) + 6px + var(--safe-area-inset-top))` 이므로, 헤더 하단에서 그래프까지의 시각적 간격 = 6px + 1em(16px) = 22px — 툴바 아래의 "호흡 간격" 역할을 한다. 전체화면 규칙을 작성할 때 top/bottom 오프셋만 교체하고 이 마진을 재정의하지 않아 상단에만 간격이 남았고, 하단은 대응하는 마진이 없어 밀착됐다. 규칙 위의 기존 주석("Top: flush to the safe-area inset…") 역시 실제 동작과 어긋나 있었다.
 
 ---
 
-## 4. 전체 DIFF (`git apply fix.patch` 로 적용 가능)
+## 3. 해결 방법 (v2 — 자연스러운 간격 + 조정 가능 구조)
+
+### 3.1 왜 15px 인가 — 사방 균일 프레임
+
+전체화면에서 `.graph-row` 의 **좌우 바깥 여백은 이미 15px** 로 고정되어 있다:
+
+```css
+.app-main-pane {
+    padding-inline-start: 15px;
+    padding-inline-end: 15px;
+}
+
+.blackbox-viewer-root.has-video .graph-row,
+.blackbox-viewer-root.has-log .graph-row {
+    width: calc(100% - 30px);   /* 100% − 좌우 15px×2 → 좌우 거터 15px */
+}
+```
+
+이 상태에서 상·하 여백을 15px 로 맞추면 그래프 행이 **네 변이 모두 15px 인 균일 프레임** 안에 놓인다. 16px(1em)도 어차피 15px 와 시각적 차이가 1px 에 불과하지만, "좌우와 동일"이라는 명확한 디자인 근거가 있는 쪽이 훨씬 자연스럽다. 화면 가장자리에서 시작하는 캔버스 그리드·눈금이 네 방향으로 동일한 호흡 공간을 갖게 되어, 전체화면이라는 "콘텐츠만 남긴" 레이아웃에서도 의도된 여백처럼 보인다.
+
+### 3.2 왜 `:root` 변수로 뽑았는가 — 코드베이스 관례 + 한 줄 튜닝
+
+`main.css` 는 이미 레이아웃 메트릭을 `:root` 변수로 관리하는 관례가 있다:
+
+```css
+:root {
+    --toolbar-height: 76px;   /* ≤1020px: 64px 로 미디어쿼리가 오버라이드 */
+    --statusbar-height: 1.5rem;
+    --seekbar-height: calc(50px + 0.5em);
+}
+```
+
+이 줄기에 `--fullscreen-graph-gap` 을 추가하면 (1) 기존 변수 문화와 일치하고, (2) 나중에 값을 바잘 때 규칙 본문이 아니라 변수 한 줄만 고치면 되며, (3) 필요하면 폰 미디어쿼리에서 기기별 오버라이드도 기존 패턴 그대로 가능하다. 실제로 폰에서는 여백을 조금 더 줄여 그래프를 더 크게 쓰고 싶어질 수 있는데, 그 경우 다음 한 블록만 추가하면 된다 (기본 diff 에는 포함하지 않음 — 선택 사항):
+
+```css
+/* 선택: 좁은 폰 화면에서는 여백을 12px 로 축소해 그래프를 더 확보 */
+@media (max-width: 675px) {
+    :root {
+        --fullscreen-graph-gap: 12px;
+    }
+}
+```
+
+### 3.3 최종 구현
+
+```css
+/* :root 블록에 추가 */
+:root {
+    /* …기존 변수들… */
+
+    /*
+     * Graph-only fullscreen breathing gap — the visible clearance between
+     * .graph-row and each viewport edge (on top of the safe-area insets).
+     * 15px matches the horizontal gutters (.app-main-pane padding-inline /
+     * .graph-row width: calc(100% - 30px)), giving the fullscreen graph a
+     * uniform 15px frame on all four sides. Tune this single value to taste.
+     */
+    --fullscreen-graph-gap: 15px;
+}
+
+/* 전체화면 규칙 — 상·하 margin 을 변수로 대칭 선언 */
+.blackbox-viewer-root.is-fullscreen.has-log .graph-row,
+.blackbox-viewer-root.is-fullscreen.has-video .graph-row {
+    top: var(--safe-area-inset-top);
+    bottom: var(--safe-area-inset-bottom);
+    margin-top: var(--fullscreen-graph-gap);
+    margin-bottom: var(--fullscreen-graph-gap);
+}
+```
+
+`margin-top` 을 변수로 **명시적으로 재정의**하는 이유: 기본 규칙의 `margin-top: 1em` 이 새어 들어오는 것을 차단하고 상단 간격도 같은 변수로 통제해야, 나중에 값을 바꿀 때 상·하가 항상 함께 움직여 대칭이 깨지지 않는다.
+
+### 3.4 간격 튜닝 가이드
+
+`--fullscreen-graph-gap` 값을 바꿔가며 취향에 맞게 고르면 된다:
+
+| 값 | 느낌 | 근거 / 추천 상황 |
+|----|------|------------------|
+| `8px` (0.5em) | 아주 타이트 — 그래프 최대 확보 | 일반 모드의 "타임라인 위 간격"과 같은 값. 소형 폰에서 세로 공간이 절실할 때 |
+| `12px` (0.75em) | 절충 | 위 폰 오버라이드 예시 값. 675px 이하 미디어쿼리와 함께 쓰기 좋음 |
+| **`15px` (기본)** | **균일 프레임 — 가장 자연스러움** | **좌우 거터와 정확히 일치. 본 문서 권장값** |
+| `16px` (1em) | v1 값 | 루트 폰트 배수로 유지하고 싶을 때 (1px 차이일 뿐 시각적으로는 15px 와 거의 동일) |
+
+### 3.5 적용 후 계산
+
+```text
+상단 간격 = --safe-area-inset-top    + --fullscreen-graph-gap (15px)
+하단 간격 = --safe-area-inset-bottom + --fullscreen-graph-gap (15px)
+좌우 간격 = 15px (기존 규칙 그대로)
+→ inset 이 0 인 표준 스마트폰에서 네 변 모두 15px. 노치/제스처바 기기에서는
+  상하가 각각 inset + 15px 로 늘어나지만 서로 대칭이므로 균형이 유지된다.
+```
+
+### 3.6 부작용 검토 (전부 확인 완료 — 추가 변경 불필요)
+
+| 항목 | 영향 | 이유 |
+|------|------|------|
+| 그래프 캔버스 재측정 | 없음 (자동 처리) | `toggleFullscreen()`(stores/graph.js)이 `nextTick(() => requestAnimationFrame(() => updateCanvasSize()))` 로 레이아웃 반영 후 재측정함 — JS 수정 불필요 |
+| `LegendPanel`(`.log-graph-config`) | 자동 수축 | `.graph-row` 의 flex 형제로 함께 높이가 줄어듦 (이전 fix.md 3장과 동일 메커니즘) |
+| 일반(비전체화면) 모드 | 무영향 | 변수는 새로 추가된 것(다른 규칙이 참조하지 않음), margin 규칙은 `.is-fullscreen` 스코프 안에 있음. 일반 모드의 22px/8px 간격은 그대로 |
+| `#screenshot-frame` / 동영상 내보내기 | 무영향 | `screenshot-frame` 은 JS 에서 참조하지 않는 레거시 id (저장소 전수 검색 확인) |
+| 세로 공간 | −15px | 요구된 하단 여백의 비용. v1(−16px)보다 오히려 1px 덜 잠식 |
+| 캔버스 절대 좌표(`#graphCanvas` 등) | 무영향 | 캔버스는 `.log-graph` 내부 `position: absolute; width/height: 100%` 라 부모 크기만 따라감 |
+
+---
+
+## 4. DIFF
+
+`git apply fullscreen-bottom-margin.patch` (저장소 루트에서) 또는 수동 적용:
 
 ```diff
-diff --git a/src/blackbox-viewer/App.vue b/src/blackbox-viewer/App.vue
-index 9d1e2ad..1670885 100644
---- a/src/blackbox-viewer/App.vue
-+++ b/src/blackbox-viewer/App.vue
-@@ -60,6 +60,29 @@
-                     </div>
-                     <div id="screenshot-frame" class="graph-row">
-                         <div id="log-graph" class="log-graph">
-+                            <!--
-+                                Graph-only fullscreen toggle. Sits in the top-left corner of the
-+                                graph canvas, immediately to the left of the filename overlay.
-+                                Toggling it adds the `is-fullscreen` class to the viewer root, which
-+                                collapses the .video-top-controls header and .log-seek-bar timeline
-+                                so .graph-row (and its flex sibling, LegendPanel) can absorb the
-+                                full viewport height — see the `.is-fullscreen.*` rules in main.css.
-+                            -->
-+                            <button
-+                                v-if="appStore.logFilename"
-+                                type="button"
-+                                class="graph-fullscreen-toggle"
-+                                :class="{ 'is-active': graphStore.isFullscreen }"
-+                                :title="graphStore.isFullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen (F)'"
-+                                :aria-label="graphStore.isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
-+                                :aria-pressed="graphStore.isFullscreen"
-+                                @click="graphStore.toggleFullscreen()"
-+                            >
-+                                <UIcon
-+                                    :name="graphStore.isFullscreen ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
-+                                    class="size-5"
-+                                />
-+                            </button>
-                             <div v-if="appStore.logFilename" class="graph-filename-overlay" :title="appStore.logFilename">
-                                 {{ appStore.logFilename }}
-                             </div>
 diff --git a/src/blackbox-viewer/css/main.css b/src/blackbox-viewer/css/main.css
-index 3797c98..c0c8e1f 100644
+index 5508816..3eae720 100644
 --- a/src/blackbox-viewer/css/main.css
 +++ b/src/blackbox-viewer/css/main.css
-@@ -153,7 +153,10 @@
- .graph-filename-overlay {
-     position: absolute;
-     top: 6px;
--    left: 10px;
-+    /* The fullscreen toggle button (.graph-fullscreen-toggle) now occupies the
-+       10–38px band in the top-left corner of the canvas. Push the filename past
-+       it so the two never overlap. */
-+    left: 42px;
-     font-size: 1.25rem;
-     color: #9ca3af;
-     pointer-events: none;
-@@ -161,7 +164,49 @@
-     white-space: nowrap;
-     overflow: hidden;
-     text-overflow: ellipsis;
--    max-width: 60%;
-+    max-width: calc(60% - 32px);
-+}
+@@ -31,6 +31,15 @@
+     --toolbar-height: 76px; /* .video-top-controls height (64px ≤1020px) */
+     --statusbar-height: 1.5rem; /* .vue-statusbar height (24px) */
+     --seekbar-height: calc(50px + 0.5em); /* timeline canvas + its top margin */
 +
-+/*
-+ * Graph-only fullscreen toggle button — top-left of .log-graph, immediately
-+ * to the left of .graph-filename-overlay. Light gray (#9ca3af, same tone as
-+ * the filename text), transparent background, no border, accepts pointer
-+ * events even though the sibling filename overlay does not.
-+ */
-+.graph-fullscreen-toggle {
-+    position: absolute;
-+    top: 6px;
-+    left: 10px;
-+    z-index: 6;
-+    display: inline-flex;
-+    align-items: center;
-+    justify-content: center;
-+    width: 28px;
-+    height: 28px;
-+    padding: 0;
-+    background: transparent;
-+    border: 0;
-+    color: #9ca3af;
-+    cursor: pointer;
-+    border-radius: 4px;
-+    pointer-events: auto;
-+    transition: color 120ms ease, background-color 120ms ease;
-+}
-+
-+.graph-fullscreen-toggle:hover,
-+.graph-fullscreen-toggle:focus-visible {
-+    color: #d1d5db;
-+    background-color: rgba(127, 127, 127, 0.18);
-+    outline: none;
-+}
-+
-+.graph-fullscreen-toggle.is-active {
-+    color: #e5e7eb;
-+}
-+
-+.blackbox-viewer-root.dark .graph-fullscreen-toggle:hover,
-+.blackbox-viewer-root.dark .graph-fullscreen-toggle:focus-visible {
-+    background-color: rgba(255, 255, 255, 0.08);
++    /*
++     * Graph-only fullscreen breathing gap — the visible clearance between
++     * .graph-row and each viewport edge (on top of the safe-area insets).
++     * 15px matches the horizontal gutters (.app-main-pane padding-inline /
++     * .graph-row width: calc(100% - 30px)), giving the fullscreen graph a
++     * uniform 15px frame on all four sides. Tune this single value to taste.
++     */
++    --fullscreen-graph-gap: 15px;
  }
  
- .log-graph-config {
-@@ -473,6 +518,51 @@
-     );
+ .blackbox-viewer-root a:hover {
+@@ -556,11 +565,17 @@
+ 
+ .blackbox-viewer-root.is-fullscreen.has-log .graph-row,
+ .blackbox-viewer-root.is-fullscreen.has-video .graph-row {
+-    /* Top: flush to the safe-area inset (no toolbar, no 6px gap).
+-       Bottom: flush to the bottom safe-area inset (no status bar,
+-       no timeline, no 0.5em gap). */
++    /* Top/bottom edges sit at the safe-area insets; the visible breathing
++       gap on each edge comes from the margins. The base .graph-row rule
++       supplies margin-top: 1em (in normal layout that is the gap below the
++       toolbar) — override BOTH margins with --fullscreen-graph-gap so the
++       vertical gap stays symmetric and matches the 15px horizontal gutters.
++       Previously the bottom sat flush against the viewport
++       (margin-bottom: 0). */
+     top: var(--safe-area-inset-top);
+     bottom: var(--safe-area-inset-bottom);
++    margin-top: var(--fullscreen-graph-gap);
++    margin-bottom: var(--fullscreen-graph-gap);
  }
  
-+/*
-+ * Graph-only fullscreen layout — toggled by the .graph-fullscreen-toggle
-+ * button in the top-left corner of .log-graph. When the viewer root carries
-+ * the `is-fullscreen` class (wired by App.vue from graphStore.isFullscreen):
-+ *
-+ *   1. The top header strip (.video-top-controls) is hidden.
-+ *   2. The bottom timeline strip (.log-seek-bar) is hidden.
-+ *   3. The bottom status strip (.vue-statusbar) is hidden too — true
-+ *      full-height graph + Legend. Loop/bookmark info is traded for ~24px
-+ *      more graph height.
-+ *   4. .graph-row stretches from the top safe-area inset to the bottom
-+ *      safe-area inset — i.e. it absorbs the toolbar, timeline AND status
-+ *      bar heights that were removed in steps 1–3. LegendPanel
-+ *      (.log-graph-config) is a flex sibling of .log-graph inside
-+ *      .graph-row, so it grows with it and no extra rule is needed.
-+ *
-+ * Specificity (.is-fullscreen.has-log/.has-video = three classes) beats the
-+ * original (.has-log/.has-video = two classes), so no `!important` is needed.
-+ */
-+.blackbox-viewer-root.is-fullscreen.has-log .video-top-controls,
-+.blackbox-viewer-root.is-fullscreen.has-video .video-top-controls {
-+    display: none;
-+}
-+
-+.blackbox-viewer-root.is-fullscreen.has-log .log-seek-bar,
-+.blackbox-viewer-root.is-fullscreen.has-video .log-seek-bar {
-+    display: none;
-+}
-+
-+/* Status bar is also hidden in graph-only fullscreen — true full-height
-+   graph + Legend. Loop/bookmark info is traded for ~24px more graph height. */
-+.blackbox-viewer-root.is-fullscreen.has-log .vue-statusbar,
-+.blackbox-viewer-root.is-fullscreen.has-video .vue-statusbar {
-+    display: none;
-+}
-+
-+.blackbox-viewer-root.is-fullscreen.has-log .graph-row,
-+.blackbox-viewer-root.is-fullscreen.has-video .graph-row {
-+    /* Top: flush to the safe-area inset (no toolbar, no 6px gap).
-+       Bottom: flush to the bottom safe-area inset (no status bar,
-+       no timeline, no 0.5em gap). */
-+    top: var(--safe-area-inset-top);
-+    bottom: var(--safe-area-inset-bottom);
-+}
-+
  .blackbox-viewer-root.has-video .log-graph {
-     height: auto;
- }
 ```
 
----
-
-## 5. 예상 효과 (수정 후)
-
-| 항목 | 수정 전 | 수정 후 (전체화면 토글 ON) |
-|------|---------|----------------------|
-| 폰 가로 360px 높이에서 `.graph-row` 높이 | ~200px | **~360px** (안전영역 0 가정 시 거의 뷰포트 전체) — 약 **80% 증가** |
-| `video-top-controls` 노출 | 항상 | 전체화면 중 숨김 |
-| `log-seek-bar` 노출 | 항상 | 전체화면 중 숨김 |
-| `.vue-statusbar` 노출 | 항상 | 전체화면 중 숨김 (루프/북마크 정보는 종료 후 다시 표시) |
-| `LegendPanel` (.log-graph-config) 높이 | 좁은 영역에서 flex 분할 | `.graph-row` 의 확장에 비례해 같이 확장 |
-| 그래프 캔버스 (`#graphCanvas`) 자동 재측정 | — | `toggleFullscreen()` 내 `nextTick(rAF(updateCanvasSize))` 로 자동 처리 (기존 코드 재사용) |
-| 키보드 단축키 `F` / `Esc` | 동작 (클래스 토글만 되고 레이아웃 변화 없음) | 동작 + 이제 레이아웃도 변화 |
-| 전체화면 진입 UI | 없음 | 밝은 회색 아이콘 버튼 (좌상단, 파일명 왼쪽) |
+변경 통계: `src/blackbox-viewer/css/main.css` 1개 파일, +17 −3 (코드 라인은 `:root` 변수 1줄 + margin 2줄, 나머지는 주석).
 
 ---
 
-## 6. 적용 및 APK 빌드 절차
+## 5. 검증 방법
 
-```bash
-# 1. 패치 적용 (이미 수정된 저장소라면 생략)
-cd blackbox2
-git apply fix.patch
+### 5.1 수동 절차 (기기)
 
-# 2. 웹 에셋 빌드
-npm install
-npm run build          # Vite 정적 빌드 → dist/
+1. `.bbl` 파일을 연다.
+2. 좌상단 밝은 회색 아이콘으로 전체화면 진입.
+3. 기대 결과: **상·하·좌·우 여백이 모두 15px 로 동일**하다. 그래프 캔버스와 범례 패널이 새 높이에 맞춰 즉시 재축소되고 다시 그려진다.
+4. 다시 아이콘(또는 `Esc`)으로 종료 → 기존 일반 레이아웃(헤더/타임라인/상태바 복원, 22px/8px 간격)이 그대로 돌아오는지 확인.
+5. 재생 중 전체화면 토글 → 캔버스 flicker 나 좌표 어긋남이 없는지 확인 (`updateCanvasSize` 재측정 체계가 그대로 동작).
 
-# 3. Capacitor 로 Android 프로젝트에 동기화
-npx cap sync android   # dist/ → android/app/src/main/assets/public/ 복사
+### 5.2 수동 절차 (DevTools 대체)
 
-# 4. APK 빌드 (Debug 또는 Release)
-cd android
-./gradlew assembleDebug                                  # debug APK
-# 또는
-./gradlew assembleRelease                               # release APK (서명 필요)
+Chrome DevTools 기기 에뮬레이션(예: 360×640, DPR 2)으로 동일 절차 수행. 요소 검사로 `.graph-row` 의 computed style 이 `margin: 15px 0` (그리고 좌우 15px 거터)이고, bounding box 하단이 `뷰포트 높이 − 15px` 인지 확인한다.
 
-# 산출물 위치:
-#   android/app/build/outputs/apk/debug/app-debug.apk
-#   android/app/build/outputs/apk/release/app-release-unsigned.apk
-```
+### 5.3 간격 미세 조정 시
 
-> `build.md` 의 표준 절차를 따릅니다. 본 수정은 HTML/Vue/CSS 만 변경하는 것이므로 네이티브 코드(`MainActivity.java`, `BetaflightFilePlugin.java`)는 그대로 두며 `npx cap sync android` 단계만 다시 실행하면 됩니다.
+값을 바꾸려면 `main.css` 의 `--fullscreen-graph-gap: 15px;` 한 줄만 고친다. 상·하가 항상 함께 움직이므로 대칭은 절대 깨지지 않는다. 폰에서만 다른 값을 쓰고 싶으면 §3.2의 미디어쿼리 스니펫을 추가한다.
 
----
+### 5.4 회귀 체크리스트
 
-## 7. 권고 사항 (선택)
-
-- **상태바를 다시 보이게 하는 옵션**: 본 diff 에서는 상태바까지 숨기는 버전을 적용했습니다. 만약 분석 중 루프 정보/북마크 버튼이 필요하다면 `.is-fullscreen.has-log .vue-statusbar { display: none; }` 규칙 한 줄을 제거하고 `.graph-row`의 `bottom` 을 `calc(var(--statusbar-height) + var(--safe-area-inset-bottom))` 으로 되돌리면 상태바 유지 버전으로 복귀합니다.
-- **세로 모드 폰**: 가로 360px 가 아닌 세로 640~800px 화면에서는 그래프 높이가 충분하므로 전체화면 토글의 효용이 상대적으로 작지만, 여전히 헤더/타임라인/상태바를 숨겼을 때 획득하는 약 150~170px 추가 높이는 의미가 있습니다.
-- **아이콘 크기**: `class="size-5"` (20px) 를 사용했습니다. 폰에서 손가락 터치 타깃 권장(44px) 보다는 작지만, 파일명 텍스트 옆 시각적 균형을 고려한 선택입니다. 터치 영역은 버튼 자체 28×28px 이며, 필요하다면 `padding` 또는 `width/height` 를 40px 까지 키우고 `left` 를 6px 로 조정해도 됩니다.
-- **단축키 안내**: `title` 속성에 `(F)` / `(Esc)` 힌트를 넣었습니다. `KeysDialog.vue` 의 단축키 안내 다이얼로그에도 "F — Toggle fullscreen" 항목이 있는지 확인해 보세요. (현재 `keyboard_handler.js` 에 `F` 핸들러가 있으므로 이미 등록되어 있을 가능성이 높습니다.)
+- [ ] 전체화면에서 사방 여백 균일 (inset 0 기기: 네 변 모두 15px)
+- [ ] 노치/제스처바 기기에서도 상하 대칭 (`inset + 15px`)
+- [ ] 일반 모드 레이아웃 무변화
+- [ ] 분석기 전체화면(`has-analyser-fullscreen`), 지도, 스틱 오버레이 정상
+- [ ] 동영상/CSV 내보내기 정상 (`screenshot-frame` JS 참조 없음 확인 완료)

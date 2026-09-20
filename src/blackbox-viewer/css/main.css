@@ -31,6 +31,15 @@
     --toolbar-height: 76px; /* .video-top-controls height (64px ≤1020px) */
     --statusbar-height: 1.5rem; /* .vue-statusbar height (24px) */
     --seekbar-height: calc(50px + 0.5em); /* timeline canvas + its top margin */
+
+    /*
+     * Graph-only fullscreen breathing gap — the visible clearance between
+     * .graph-row and each viewport edge (on top of the safe-area insets).
+     * 15px matches the horizontal gutters (.app-main-pane padding-inline /
+     * .graph-row width: calc(100% - 30px)), giving the fullscreen graph a
+     * uniform 15px frame on all four sides. Tune this single value to taste.
+     */
+    --fullscreen-graph-gap: 15px;
 }
 
 .blackbox-viewer-root a:hover {
@@ -556,11 +565,17 @@
 
 .blackbox-viewer-root.is-fullscreen.has-log .graph-row,
 .blackbox-viewer-root.is-fullscreen.has-video .graph-row {
-    /* Top: flush to the safe-area inset (no toolbar, no 6px gap).
-       Bottom: flush to the bottom safe-area inset (no status bar,
-       no timeline, no 0.5em gap). */
+    /* Top/bottom edges sit at the safe-area insets; the visible breathing
+       gap on each edge comes from the margins. The base .graph-row rule
+       supplies margin-top: 1em (in normal layout that is the gap below the
+       toolbar) — override BOTH margins with --fullscreen-graph-gap so the
+       vertical gap stays symmetric and matches the 15px horizontal gutters.
+       Previously the bottom sat flush against the viewport
+       (margin-bottom: 0). */
     top: var(--safe-area-inset-top);
     bottom: var(--safe-area-inset-bottom);
+    margin-top: var(--fullscreen-graph-gap);
+    margin-bottom: var(--fullscreen-graph-gap);
 }
 
 .blackbox-viewer-root.has-video .log-graph {
