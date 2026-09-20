@@ -886,7 +886,7 @@ export function bootstrapViewer() {
                 }
                 if (fullscreen && logStore.hasLog) {
                     showTouchNote(
-                        "Touch · left: slow · center: play/pause · right: fast<br>Pinch: zoom · drag: pan",
+                        "Touch right half · 50-65: slow · 65-85: play/pause · 85-100: fast<br>Pinch: zoom · drag: pan",
                         2500,
                     );
                 }

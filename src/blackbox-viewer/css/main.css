@@ -314,6 +314,25 @@
     display: block;
 }
 
+/*
+ * #craftCanvas and #stickCanvas are pure decorations painted OVER the graph
+ * canvas (3D model, top-left ≈ first 40–46 % of the width; stick gauges, a
+ * 60–90 % width band). A canvas hit-tests every touch even where its pixels
+ * are fully transparent, so these overlays used to swallow the touches meant
+ * for #graphCanvas: the left half of the graph went dead (craft model) and a
+ * dead band cut through the right half (sticks) — breaking both the legacy
+ * drag-to-seek and the fullscreen gesture layer. Neither canvas registers
+ * any event handler of its own, so making them click-through is safe.
+ * #analyser is intentionally NOT listed: it hosts real touch targets
+ * (spectrum type select, zoom sliders, PSD inputs) and keeps its pointer
+ * events on the left half of the graph — see touch_fullscreen_controls.js,
+ * whose gesture zone starts at 50 % of the canvas width.
+ */
+#craftCanvas,
+#stickCanvas {
+    pointer-events: none;
+}
+
 #mapContainer.no-gps-data:before {
     position: absolute;
     display: block;

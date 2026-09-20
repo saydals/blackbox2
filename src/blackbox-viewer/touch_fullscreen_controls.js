@@ -9,11 +9,16 @@ import { GRAPH_MIN_ZOOM, GRAPH_MAX_ZOOM } from "./stores/graph.js";
  * any more. This module gives the graph canvas a touch gesture set, active
  * only while the graph-only fullscreen is on and a log is loaded:
  *
- *   tap  left third   → slow playback (TOUCH_SLOW_RATE, plays if paused)
- *   tap  center third → play / pause toggle
- *   tap  right third  → fast playback (TOUCH_FAST_RATE, plays if paused)
- *   two-finger drag   → pinch zoom of the graph time window
- *   one-finger drag   → pan the graph through time
+ *   Gesture zone — the RIGHT HALF of the canvas only (x >= 50 % of the
+ *   width). The left half is reserved for the analyser overlay (#analyser:
+ *   spectrum type select, zoom sliders, PSD inputs — real touch targets),
+ *   so the gesture layer ignores every touch that begins there.
+ *
+ *   tap  50–65 %   → slow playback (TOUCH_SLOW_RATE, plays if paused)
+ *   tap  65–85 %   → play / pause toggle
+ *   tap  85–100 %  → fast playback (TOUCH_FAST_RATE, plays if paused)
+ *   two-finger drag (anchored in the zone) → pinch zoom of the time window
+ *   one-finger drag (starts in the zone)   → pan the graph through time
  *
  * Gesture recognition lives here; every action is a callback supplied by
  * main.js, so playback, rate and zoom run through the exact same pipeline
@@ -38,6 +43,21 @@ export const TOUCH_FAST_RATE = 200;
 const TAP_SLOP_PX = 10;
 const TAP_MAX_MS = 350;
 
+/* Gesture zone — right half of the canvas, as a fraction of its width.
+ * Touches that begin left of this line are not gestures: they belong to
+ * the analyser overlay (frequency box) and stay untouched by this layer.
+ * The decorative craft/stick canvases that used to swallow touches inside
+ * the right half are made click-through in main.css (pointer-events:none),
+ * so the zone below is guaranteed reachable edge to edge (50–100 %). */
+export const TOUCH_ZONE_START = 0.5;
+
+/* Tap verdict bounds INSIDE the gesture zone, still expressed as fractions
+ * of the FULL canvas width: 50–65 slow, 65–85 play/pause, 85–100 fast.
+ * The verdict uses where the finger WENT DOWN (not where it lifted), so
+ * the zone under the finger at touch time decides the action. */
+export const TOUCH_ZONE_SLOW_END = 0.65;
+export const TOUCH_ZONE_CENTER_END = 0.85;
+
 /**
  * @param {Object} ctx
  * @param {HTMLCanvasElement} ctx.canvas - #graphCanvas (fills .log-graph)
@@ -59,6 +79,7 @@ export function attachFullscreenTouchControls({ canvas, graphStore, logStore, ac
     let startX = 0;
     let startY = 0;
     let startTime = 0;
+    let startXFraction = 0;
     let lastX = 0;
     let pinchStartDist = 0;
     let pinchStartZoom = 0;
@@ -73,8 +94,27 @@ export function attachFullscreenTouchControls({ canvas, graphStore, logStore, ac
         return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
     }
 
+    /* X of a client-space point as a fraction of the on-screen canvas box
+     * (CSS pixels — the same space the tap zones are defined in). */
+    function canvasXFraction(clientX) {
+        const rect = canvas.getBoundingClientRect();
+        return (clientX - rect.left) / rect.width;
+    }
+
+    function inGestureZone(clientX) {
+        return canvasXFraction(clientX) >= TOUCH_ZONE_START;
+    }
+
     function beginDecision(e) {
+        const x = canvasXFraction(e.touches[0].clientX);
+        if (x < TOUCH_ZONE_START) {
+            // Survivor finger of a pinch drifted into the analyser half —
+            // never start a tap decision from the left half.
+            mode = "idle";
+            return;
+        }
         mode = "deciding";
+        startXFraction = x;
         startX = lastX = e.touches[0].pageX;
         startY = e.touches[0].pageY;
         startTime = Date.now();
@@ -82,6 +122,14 @@ export function attachFullscreenTouchControls({ canvas, graphStore, logStore, ac
 
     function onTouchStart(e) {
         if (!active()) {
+            return;
+        }
+        // Zone gate — the FIRST touch of the list anchors the gesture. When
+        // it starts on the left half this layer stands down entirely and
+        // does NOT preventDefault(), so the analyser overlay and everything
+        // under it keep their native touch behavior. (This also rejects a
+        // pinch whose first finger landed on the analyser.)
+        if (!inGestureZone(e.touches[0].clientX)) {
             return;
         }
         if (e.touches.length === 1) {
@@ -140,13 +188,13 @@ export function attachFullscreenTouchControls({ canvas, graphStore, logStore, ac
 
     function onTouchEnd(e) {
         if (mode === "deciding" && Date.now() - startTime <= TAP_MAX_MS) {
-            // Zone verdict from where the finger LIFTED (changedTouches), in
-            // CSS pixels relative to the on-screen canvas box.
-            const rect = canvas.getBoundingClientRect();
-            const x = (e.changedTouches[0].clientX - rect.left) / rect.width;
-            if (x < 1 / 3) {
+            // Zone verdict from where the finger WENT DOWN (startXFraction,
+            // fraction of the full canvas width): 50–65 slow, 65–85
+            // play/pause, 85–100 fast. A deciding touch always started in
+            // the gesture zone, so no left-half case can reach here.
+            if (startXFraction < TOUCH_ZONE_SLOW_END) {
                 onSlowPlay();
-            } else if (x < 2 / 3) {
+            } else if (startXFraction < TOUCH_ZONE_CENTER_END) {
                 onPlayPause();
             } else {
                 onFastPlay();
