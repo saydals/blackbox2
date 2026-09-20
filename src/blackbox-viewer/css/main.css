@@ -286,6 +286,15 @@
     width: 100%;
     height: 100%;
     background-color: var(--graph-background);
+    /* Fullscreen touch gestures (Android): the canvas runs its own pan and
+       pinch handlers (touch_fullscreen_controls.js), so the WebView must
+       never reinterpret those touches as page scroll or page pinch-zoom.
+       touch-action: none blocks every default touch behavior for touches
+       that BEGIN on the canvas — preventDefault() alone cannot guarantee
+       that, because a document-level touchmove listener (e.g. grapher.js's
+       legacy drag-seek capture) is passive-by-default on Chromium. The
+       Legend panel is a separate element and keeps its own touch behavior. */
+    touch-action: none;
 }
 
 #craftCanvas,

@@ -10,6 +10,12 @@ import { FlightLog } from "./flightlog.js";
 import { stringTimetoMsec, validate, mouseNotification } from "./tools.js";
 import { restorePenDefaults, changePenSmoothing, changePenZoom, changePenExpo } from "./pen_adjustment.js";
 import { createKeydownHandler, createDropdownSpaceGuard } from "./keyboard_handler.js";
+import {
+    attachFullscreenTouchControls,
+    TOUCH_SLOW_RATE,
+    TOUCH_FAST_RATE,
+} from "./touch_fullscreen_controls.js";
+import { isAndroid } from "@/js/utils/checkCompatibility.js";
 import { upgradeWorkspaceFormat, saveWorkspaces, loadWorkspaces } from "./workspace_io.js";
 import { exportCsv, exportGpx, exportSpectrumToCsv } from "./export_utils.js";
 import { cancelActiveVideoExport } from "./video_export.js";
@@ -52,7 +58,7 @@ import { ThemeColors } from "./theme_colors.js";
 import { pinia } from "@/js/pinia_instance.js";
 import { useLogStore } from "./stores/log.js";
 import { useGraphStore } from "./stores/graph.js";
-import { usePlaybackStore, GRAPH_STATE_PAUSED } from "./stores/playback.js";
+import { usePlaybackStore, GRAPH_STATE_PAUSED, GRAPH_STATE_PLAY } from "./stores/playback.js";
 import { useWorkspaceStore } from "./stores/workspace.js";
 import { useAppStore } from "./stores/app.js";
 import { useSettingsStore } from "./stores/settings.js";
@@ -173,6 +179,10 @@ export function bootstrapViewer() {
             userSettings,
         );
         graphStore.graph = graph;
+        // A log opened while Android fullscreen is already on must hand touch
+        // control straight to the fullscreen gesture layer — the watch below
+        // only runs on toggle, not on graph (re)creation.
+        graph.touchSeekEnabled = !(graphStore.isFullscreen && isAndroid());
 
         setVideoInTime(false);
         setVideoOutTime(false);
@@ -816,6 +826,74 @@ export function bootstrapViewer() {
             setGraphState(GRAPH_STATE_PAUSED);
         }
     };
+
+    // --- Android fullscreen touch controls ----------------------------------
+    // In graph-only fullscreen the toolbar, the seek bar and the status bar
+    // are hidden (the .is-fullscreen rules in main.css) and an Android APK has
+    // no keyboard, so play/pause, rate and zoom become unreachable. Attach the
+    // touch gesture layer (3-zone tap / pinch zoom / drag pan) for
+    // Capacitor-Android builds; every other host — including Android web
+    // browsers — keeps the legacy single-finger drag-to-seek only.
+    if (isAndroid()) {
+        const showTouchNote = (message, delay) => {
+            mouseNotification.show(
+                document.getElementById("log-graph"),
+                null,
+                null,
+                message,
+                delay,
+                null,
+                "bottom-right",
+                0,
+            );
+        };
+
+        const destroyFullscreenTouchControls = attachFullscreenTouchControls({
+            canvas,
+            graphStore,
+            logStore,
+            actions: {
+                // Drag pan reuses the grapher's seek path (offset in micros,
+                // ×2 "seek faster" factor included) so the touch drag feels
+                // identical to the desktop mouse drag.
+                onGraphSeek: (offset) => graph?.onSeek?.(offset),
+                onPlayPause: () => logPlayPause(),
+                onSlowPlay: () => {
+                    setPlaybackRate(TOUCH_SLOW_RATE);
+                    setGraphState(GRAPH_STATE_PLAY);
+                    showTouchNote(`${TOUCH_SLOW_RATE} % · slow`, 1000);
+                },
+                onFastPlay: () => {
+                    setPlaybackRate(TOUCH_FAST_RATE);
+                    setGraphState(GRAPH_STATE_PLAY);
+                    showTouchNote(`${TOUCH_FAST_RATE} % · fast`, 1000);
+                },
+                // playback_controls.setGraphZoom clamps to [1, 1000], syncs
+                // the store, the grapher window and invalidates the graph.
+                onZoom: (zoom) => setGraphZoom(Math.round(zoom)),
+            },
+        });
+        cleanupFns.push(destroyFullscreenTouchControls);
+
+        // Hand the canvas over to the gesture layer exactly while Android
+        // fullscreen is on; restore the legacy touchseek on exit. Logs opened
+        // while fullscreen is already on are handled in selectLog.
+        const stopFullscreenTouchWatch = watch(
+            () => graphStore.isFullscreen,
+            (fullscreen) => {
+                if (graph) {
+                    graph.touchSeekEnabled = !fullscreen;
+                }
+                if (fullscreen && logStore.hasLog) {
+                    showTouchNote(
+                        "Touch · left: slow · center: play/pause · right: fast<br>Pinch: zoom · drag: pan",
+                        2500,
+                    );
+                }
+            },
+        );
+        cleanupFns.push(stopFullscreenTouchWatch);
+    }
 
     // Teardown: reverse every global side-effect so the tab can be re-mounted cleanly.
     return function teardown() {

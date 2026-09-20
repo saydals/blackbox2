@@ -82,6 +82,14 @@ export function FlightLogGrapher(flightLog, graphConfig, canvas, stickCanvas, cr
         watermarkLogo; /* Watermark feature */
     this.onSeek = null;
 
+    /* When false, the built-in single-finger drag-to-seek below stands down.
+     * main.js disables it for the Android+fullscreen combination, where the
+     * fullscreen touch gesture layer (touch_fullscreen_controls.js) must be
+     * the only touch handler on the canvas — otherwise the grapher would seek
+     * on every pan and its touchstart would reset lastMouseX under the pinch.
+     * Every other host (desktop mouse/touchscreen) keeps the legacy behavior. */
+    this.touchSeekEnabled = true;
+
     this.getAnalyser = function () {
         return analyser;
     };
@@ -126,7 +134,12 @@ export function FlightLogGrapher(flightLog, graphConfig, canvas, stickCanvas, cr
         }
     }
 
-    function onTouchStart(e) {
+    // Arrow function on purpose: the guard reads `this.touchSeekEnabled`, and
+    // addEventListener would otherwise bind `this` to the canvas element.
+    const onTouchStart = (e) => {
+        if (!this.touchSeekEnabled) {
+            return; // the fullscreen touch gesture layer owns the canvas
+        }
         if (e.touches && e.touches.length > 0) {
             lastMouseX = e.touches[0].pageX;
 
@@ -141,7 +154,7 @@ export function FlightLogGrapher(flightLog, graphConfig, canvas, stickCanvas, cr
 
             e.preventDefault();
         }
-    }
+    };
 
     function identifyFields() {
         let motorGraphColorIndex = 0,
