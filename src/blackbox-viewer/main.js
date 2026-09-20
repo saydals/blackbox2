@@ -10,11 +10,7 @@ import { FlightLog } from "./flightlog.js";
 import { stringTimetoMsec, validate, mouseNotification } from "./tools.js";
 import { restorePenDefaults, changePenSmoothing, changePenZoom, changePenExpo } from "./pen_adjustment.js";
 import { createKeydownHandler, createDropdownSpaceGuard } from "./keyboard_handler.js";
-import {
-    attachFullscreenTouchControls,
-    TOUCH_SLOW_RATE,
-    TOUCH_FAST_RATE,
-} from "./touch_fullscreen_controls.js";
+import { attachFullscreenTouchControls } from "./touch_fullscreen_controls.js";
 import { isAndroid } from "@/js/utils/checkCompatibility.js";
 import { upgradeWorkspaceFormat, saveWorkspaces, loadWorkspaces } from "./workspace_io.js";
 import { exportCsv, exportGpx, exportSpectrumToCsv } from "./export_utils.js";
@@ -58,7 +54,12 @@ import { ThemeColors } from "./theme_colors.js";
 import { pinia } from "@/js/pinia_instance.js";
 import { useLogStore } from "./stores/log.js";
 import { useGraphStore } from "./stores/graph.js";
-import { usePlaybackStore, GRAPH_STATE_PAUSED, GRAPH_STATE_PLAY } from "./stores/playback.js";
+import {
+    usePlaybackStore,
+    GRAPH_STATE_PAUSED,
+    PLAYBACK_RATE_STEPS,
+    findClosestRateStepIndex,
+} from "./stores/playback.js";
 import { useWorkspaceStore } from "./stores/workspace.js";
 import { useAppStore } from "./stores/app.js";
 import { useSettingsStore } from "./stores/settings.js";
@@ -848,6 +849,22 @@ export function bootstrapViewer() {
             );
         };
 
+        /* One tap on the left/right zone moves the playback rate by a single
+         * rung of the shared ladder (10·25·50·75·100·150·200 % — the same
+         * stops the SpeedPanel stepper uses), clamped at the ends: a speed
+         * STEPPER, not a fixed-rate button. Purely a rate change — the
+         * play/pause state is left untouched (the center zone owns that). */
+        const stepTouchRate = (direction) => {
+            const currentIndex = findClosestRateStepIndex(playbackStore.playbackRate);
+            const nextIndex = Math.max(0, Math.min(PLAYBACK_RATE_STEPS.length - 1, currentIndex + direction));
+            const nextRate = PLAYBACK_RATE_STEPS[nextIndex];
+            setPlaybackRate(nextRate);
+            showTouchNote(
+                `${nextRate} %${nextIndex === 0 ? " · min" : nextIndex === PLAYBACK_RATE_STEPS.length - 1 ? " · max" : ""}`,
+                1000,
+            );
+        };
+
         const destroyFullscreenTouchControls = attachFullscreenTouchControls({
             canvas,
             graphStore,
@@ -858,16 +875,8 @@ export function bootstrapViewer() {
                 // identical to the desktop mouse drag.
                 onGraphSeek: (offset) => graph?.onSeek?.(offset),
                 onPlayPause: () => logPlayPause(),
-                onSlowPlay: () => {
-                    setPlaybackRate(TOUCH_SLOW_RATE);
-                    setGraphState(GRAPH_STATE_PLAY);
-                    showTouchNote(`${TOUCH_SLOW_RATE} % · slow`, 1000);
-                },
-                onFastPlay: () => {
-                    setPlaybackRate(TOUCH_FAST_RATE);
-                    setGraphState(GRAPH_STATE_PLAY);
-                    showTouchNote(`${TOUCH_FAST_RATE} % · fast`, 1000);
-                },
+                onRateDown: () => stepTouchRate(-1),
+                onRateUp: () => stepTouchRate(1),
                 // playback_controls.setGraphZoom clamps to [1, 1000], syncs
                 // the store, the grapher window and invalidates the graph.
                 onZoom: (zoom) => setGraphZoom(Math.round(zoom)),
@@ -886,7 +895,7 @@ export function bootstrapViewer() {
                 }
                 if (fullscreen && logStore.hasLog) {
                     showTouchNote(
-                        "Touch right half · 50-65: slow · 65-85: play/pause · 85-100: fast<br>Pinch: zoom · drag: pan",
+                        "Touch right half · 50-65: speed down · 65-85: play/pause · 85-100: speed up<br>Pinch: zoom · drag: pan",
                         2500,
                     );
                 }

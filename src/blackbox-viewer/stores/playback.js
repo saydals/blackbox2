@@ -8,6 +8,29 @@ export const PLAYBACK_MAX_RATE = 300;
 export const PLAYBACK_DEFAULT_RATE = 100;
 export const PLAYBACK_RATE_STEP = 5;
 
+/* Canonical playback-rate ladder (percent) — the stops the SpeedPanel's
+ * touch/stepper UI supports. Single source of truth shared by the SpeedPanel
+ * stepper and the Android fullscreen touch gestures (tap 50–65 % = one step
+ * down, tap 85–100 % = one step up), so every rate control moves on the same
+ * stops and the readout always shows a known step. */
+export const PLAYBACK_RATE_STEPS = [10, 25, 50, 75, 100, 150, 200];
+
+/* Index of the ladder step closest to `rate`. Off-ladder rates (set
+ * programmatically or restored from legacy prefs) therefore step sensibly
+ * from their nearest stop instead of breaking the index lookup. */
+export function findClosestRateStepIndex(rate) {
+    let index = 0;
+    let minDiff = Math.abs(PLAYBACK_RATE_STEPS[0] - rate);
+    for (let i = 1; i < PLAYBACK_RATE_STEPS.length; i++) {
+        const diff = Math.abs(PLAYBACK_RATE_STEPS[i] - rate);
+        if (diff < minDiff) {
+            minDiff = diff;
+            index = i;
+        }
+    }
+    return index;
+}
+
 export const usePlaybackStore = defineStore("playback", () => {
     const graphState = ref(GRAPH_STATE_PAUSED);
     const playbackRate = ref(PLAYBACK_DEFAULT_RATE);

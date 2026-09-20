@@ -14,9 +14,10 @@ import { GRAPH_MIN_ZOOM, GRAPH_MAX_ZOOM } from "./stores/graph.js";
  *   spectrum type select, zoom sliders, PSD inputs — real touch targets),
  *   so the gesture layer ignores every touch that begins there.
  *
- *   tap  50–65 %   → slow playback (TOUCH_SLOW_RATE, plays if paused)
+ *   tap  50–65 %   → playback rate one STEP down the shared ladder
+ *                    (10·25·50·75·100·150·200 %, see stores/playback.js)
  *   tap  65–85 %   → play / pause toggle
- *   tap  85–100 %  → fast playback (TOUCH_FAST_RATE, plays if paused)
+ *   tap  85–100 %  → playback rate one STEP up the shared ladder
  *   two-finger drag (anchored in the zone) → pinch zoom of the time window
  *   one-finger drag (starts in the zone)   → pan the graph through time
  *
@@ -31,12 +32,6 @@ import { GRAPH_MIN_ZOOM, GRAPH_MAX_ZOOM } from "./stores/graph.js";
  * flips `graph.touchSeekEnabled` to false for the
  * fullscreen+Android combination and restores it otherwise.
  */
-
-/* "%" playback rates for the left / right tap zones. Both are members of the
- * SpeedPanel STEPS list so the hidden Speed readout stays on a known step:
- * 25 % is the slowest practical watch-speed step, 200 % is the fastest one. */
-export const TOUCH_SLOW_RATE = 25;
-export const TOUCH_FAST_RATE = 200;
 
 /* A touch counts as a tap only while it stays inside this pixel budget and
  * this time budget; anything else is a pan and must not fire a zone action. */
@@ -66,13 +61,13 @@ export const TOUCH_ZONE_CENTER_END = 0.85;
  * @param {Object} ctx.actions
  * @param {Function} ctx.actions.onGraphSeek - offset micros (same units as graph.onSeek)
  * @param {Function} ctx.actions.onPlayPause
- * @param {Function} ctx.actions.onSlowPlay
- * @param {Function} ctx.actions.onFastPlay
+ * @param {Function} ctx.actions.onRateDown - playback rate one ladder step down
+ * @param {Function} ctx.actions.onRateUp - playback rate one ladder step up
  * @param {Function} ctx.actions.onZoom - zoom factor in percent units, clamped by the caller
  * @returns {Function} destroy — removes the listeners
  */
 export function attachFullscreenTouchControls({ canvas, graphStore, logStore, actions }) {
-    const { onGraphSeek, onPlayPause, onSlowPlay, onFastPlay, onZoom } = actions;
+    const { onGraphSeek, onPlayPause, onRateDown, onRateUp, onZoom } = actions;
 
     // idle → deciding → (tap | pan) → idle, or deciding|pan → pinch → idle.
     let mode = "idle";
@@ -189,15 +184,16 @@ export function attachFullscreenTouchControls({ canvas, graphStore, logStore, ac
     function onTouchEnd(e) {
         if (mode === "deciding" && Date.now() - startTime <= TAP_MAX_MS) {
             // Zone verdict from where the finger WENT DOWN (startXFraction,
-            // fraction of the full canvas width): 50–65 slow, 65–85
-            // play/pause, 85–100 fast. A deciding touch always started in
-            // the gesture zone, so no left-half case can reach here.
+            // fraction of the full canvas width): 50–65 one rate step down,
+            // 65–85 play/pause, 85–100 one rate step up. A deciding touch
+            // always started in the gesture zone, so no left-half case can
+            // reach here.
             if (startXFraction < TOUCH_ZONE_SLOW_END) {
-                onSlowPlay();
+                onRateDown();
             } else if (startXFraction < TOUCH_ZONE_CENTER_END) {
                 onPlayPause();
             } else {
-                onFastPlay();
+                onRateUp();
             }
         }
 
