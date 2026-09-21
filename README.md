@@ -52,18 +52,3 @@ npm run android:run    # 기기/에뮬레이터 실행
 
 설치: APK를 기기로 내려받아 열면 설치된다. 최초 설치 시
 "출처를 알 수 없는 앱 설치" 허용이 필요하다.
-
-새 APK를 릴리즈에 올릴 때는(`gh` CLI 미설치 환경) GitHub API를 사용한다:
-
-```sh
-TOKEN=<GitHub PAT>
-# 1) 릴리즈 생성
-curl -s -X POST https://api.github.com/repos/saydals/blackbox2/releases \
-  -H "Authorization: token $TOKEN" \
-  -d '{"tag_name":"<태그>","name":"<제목>","body":"<설명>","prerelease":true}'
-# 2) 응답의 id로 에셋 업로드
-curl -s -X POST "https://uploads.github.com/repos/saydals/blackbox2/releases/<릴리즈ID>/assets?name=blackbox-debug.apk" \
-  -H "Authorization: token $TOKEN" \
-  -H "Content-Type: application/vnd.android.package-archive" \
-  --data-binary @blackbox-debug.apk
-```
