@@ -21,3 +21,6 @@ android/release.jks
 
 # Stray APK download without extension (literal filename)
 새 폴더
+
+# Local backups
+backup/
