@@ -1189,6 +1189,12 @@ onBeforeUnmount(() => {
 .b3d-btn:hover {
     background: #1e8fc0 !important;
 }
+.b3d-btn:disabled {
+    background: #55606c !important;
+    color: #b9c2cc !important;
+    cursor: not-allowed;
+    opacity: 0.75;
+}
 .b3d-btn--close {
     background: #64748b !important;
 }
