@@ -53,6 +53,13 @@ export function buildReplayDataFromFlightLog(log) {
     const iYaw = idx("attitude[2]");
     const iThr = idx("throttle");
     const iRcThr = idx("rcCommands[3]"); // betaflight field name (HTML used rcCommand[3])
+    // Without-GPS estimator inputs:
+    // - collective: RF logs rcCommands[3] in % (computed from setpoint[3]/10);
+    //   fall back to setpoint[3] (decideg) / 10 when rcCommands is absent.
+    // - baro: RF "altitude" field (cm) for the optional barometer vertical mode.
+    const iColl = idx("rcCommands[3]");
+    const iCollFallback = idx("setpoint[3]");
+    const iBaro = idx("altitude");
     const iVelN = idx("GPS_velned[0]");
     const iVelE = idx("GPS_velned[1]");
     const iAlt = idx("GPS_altitude");
@@ -110,6 +117,9 @@ export function buildReplayDataFromFlightLog(log) {
                 gpsAlt: iAlt >= 0 ? num(row, iAlt) : 0,
                 velN: iVelN >= 0 ? num(row, iVelN) : 0,
                 velE: iVelE >= 0 ? num(row, iVelE) : 0,
+                collective:
+                    iColl >= 0 ? num(row, iColl) : iCollFallback >= 0 ? (num(row, iCollFallback) ?? 0) / 10 : null,
+                baro: iBaro >= 0 ? num(row, iBaro) : null,
             });
         }
     }

@@ -7,6 +7,15 @@
             <button class="b3d-btn" @click="onResetView">Reset View</button>
             <button class="b3d-btn" @click="onFullScreen">Full Screen</button>
             <button class="b3d-btn" @click="onYaw">Heading 90</button>
+            <button
+                class="b3d-btn"
+                :class="{ 'b3d-btn--active': estWithoutGps }"
+                :disabled="hasGpsFlag"
+                :title="hasGpsFlag ? 'Log has GPS — estimated replay not needed' : 'Replay without GPS: estimate the flight path from collective + attitude'"
+                @click="onWithoutGps"
+            >
+                Without GPS
+            </button>
             <button class="b3d-btn b3d-btn--close" title="Close 3D view" @click="emit('close')">X</button>
             <span id="b3dStatus" class="b3d-status">{{ status }}</span>
         </div>
@@ -36,6 +45,13 @@
             <div class="b3d-file">Log: <span id="b3dFile">—</span></div>
         </div>
 
+        <Blackbox3DSettingsDialog
+            v-model:open="settingsOpen"
+            :settings="estSettings"
+            :has-baro="hasBaro"
+            @apply="onSettingsApply"
+        />
+
         <div v-if="!hasLog" class="b3d-empty">
             <p>Open a blackbox log (.bbl) in the viewer to replay the flight in 3D.</p>
         </div>
@@ -50,6 +66,8 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useLogStore } from "../stores/log.js";
 import { useAppStore } from "../stores/app.js";
 import { buildReplayDataFromFlightLog } from "../blackbox3d_adapter.js";
+import { get as configStorageGet, set as configStorageSet } from "../../js/ConfigStorage.js";
+import Blackbox3DSettingsDialog from "./Blackbox3DSettingsDialog.vue";
 // @ts-expect-error Vite ?url asset import for the bundled heli model
 import heliModelUrl from "../models/heli.glb?url";
 
@@ -94,6 +112,45 @@ const playing = ref(false);
 const replayLabel = ref("▶ Replay");
 
 // ---------------------------------------------------------------------------
+// Without-GPS flight estimation (dead reckoning from collective + attitude).
+// Runs automatically whenever the log carries no GPS fixes; the toolbar
+// "Without GPS" button just opens the parameter dialog.
+// ---------------------------------------------------------------------------
+const EST_KEY = "blackbox3dEstimatorSettings2"; // v2: baro-preferred vertical, home-point position
+const EST_DEFAULTS = {
+    verticalSource: "baroSmooth", // "none" = collective estimate, "baro" = raw, "baroSmooth" = smoothed
+    baroSmoothing: 0.8, // 0..0.95 EMA strength (baroSmooth only)
+    hoverCollective: 50, // % where net vertical accel is 0
+    fullPitchAccel: 10, // m/s² extra accel at 100% collective
+    drag: 0.15, // linear velocity damping (1/s) — bounds drift
+    startAltitude: 3, // m above ground at t=0 (no GPS)
+};
+function loadEstimatorSettings() {
+    const stored = configStorageGet(EST_KEY);
+    return { ...EST_DEFAULTS, ...(stored[EST_KEY] || {}) };
+}
+const estSettings = ref(loadEstimatorSettings());
+const settingsOpen = ref(false);
+// Reactive mirrors of non-reactive build state for the template.
+const hasGpsFlag = ref(false);
+const hasBaro = ref(false);
+// True while the current frames were produced by the estimator (no-GPS log).
+const estWithoutGps = ref(false);
+function onWithoutGps() {
+    settingsOpen.value = true;
+}
+function onSettingsApply(next) {
+    estSettings.value = { ...estSettings.value, ...next };
+    configStorageSet({ [EST_KEY]: estSettings.value });
+    settingsOpen.value = false;
+    // Rebuild frames with the new parameters (keeps the panel paused at 0).
+    if (hasLog.value && logStore.flightLog) {
+        resetPlayback();
+        prepareFromActiveLog(false);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Scene setup
 // ---------------------------------------------------------------------------
 let scene, camera, renderer, controls;
@@ -123,6 +180,9 @@ let playT = 0;
 let lastPlayWall = 0;
 let sourceRows = [];
 let gpsFixes = [];
+// Build summary for the status line (set by buildFrames).
+let lastBuildEstimator = false;
+let lastBuildBaroMode = "";
 const PLAYBACK_HZ = 50;
 const PLAYBACK_STEP_US = 1e6 / PLAYBACK_HZ;
 
@@ -470,6 +530,10 @@ function interpolateRowsAt(rows, t) {
         throttle: a.throttle + (b.throttle - a.throttle) * f,
         velN: a.velN + (b.velN - a.velN) * f,
         velE: a.velE + (b.velE - a.velE) * f,
+        // Estimator inputs: collective (%) is always linearly interpolated;
+        // baro (cm) keeps the previous value when either neighbour is missing.
+        collective: (a.collective ?? 0) + ((b.collective ?? 0) - (a.collective ?? 0)) * f,
+        baro: a.baro == null || b.baro == null ? a.baro ?? null : a.baro + (b.baro - a.baro) * f,
         baroAlt: a.baroAlt + (b.baroAlt - a.baroAlt) * f,
         gpsAlt: a.gpsAlt + (b.gpsAlt - a.gpsAlt) * f,
     };
@@ -567,28 +631,106 @@ function buildFrames(data) {
     startTime = firstTime;
     endTime = lastTime;
 
+    // Without-GPS flight estimation: dead-reckon the flight path from
+    // collective + attitude when the log carries no GPS fixes. Attitude is
+    // exactly what the graph-panel heli shows; the thrust model is
+    //   a_body = g + (coll% - hoverColl%) / 100 * fullPitchAccel
+    // rotated into the world frame by R(yaw,pitch,roll) — see the Without-GPS
+    // estimator block inside the frame loop below.
+    const useEstimator = !hasGps;
+    estWithoutGps.value = useEstimator;
+    hasGpsFlag.value = hasGps;
+    hasBaro.value = sourceRows.some((r) => r.baro != null);
+    const s = estSettings.value;
+    lastBuildEstimator = useEstimator;
+    lastBuildBaroMode =
+        useEstimator && s.verticalSource !== "none" && hasBaro.value
+            ? s.verticalSource === "baro"
+                ? "raw"
+                : "smoothed"
+            : "off";
+    const G_ACCEL = 9.80665;
+    const est = useEstimator
+        ? { x: 0, y: 0, z: s.startAltitude, vx: 0, vy: 0, vz: 0 } // world ENU; z starts at the configured altitude
+        : null;
+    const baroMode = useEstimator && s.verticalSource !== "none" && hasBaro.value;
+    const baroAlpha = Math.max(0.05, 1 - Math.min(0.95, Math.max(0, s.baroSmoothing)));
+    let baroBase = null;
+    let baroSmooth = null;
+    const estDt = PLAYBACK_STEP_US / 1e6; // integration step (frames are exactly PLAYBACK_HZ apart)
+
     for (let t = startTime; t <= endTime + 0.5; t += PLAYBACK_STEP_US) {
         const row = interpolateRowsAt(sourceRows, Math.min(t, endTime));
         if (!row) continue;
-        const gps = interpolateGpsAt(Math.min(t, endTime));
-        const gpsAltM = gps ? (gps.gpsAlt || 0) / 10 : (row.gpsAlt || 0) / 10;
-        const lat = gps ? gps.lat / 1e7 : homeLat;
-        const lon = gps ? gps.lon / 1e7 : homeLon;
-        const dLat = (lat - homeLat) * 111320;
-        const dLon = (lon - homeLon) * 111320 * Math.cos((homeLat * Math.PI) / 180);
+        let frameX = 0;
+        let frameZ = 0;
+        let frameAlt = 0;
+        if (useEstimator) {
+            // --- Thrust from collective (body frame, up axis) ---
+            const coll = row.collective ?? 0;
+            const aBody = G_ACCEL + (coll - s.hoverCollective) * 0.01 * s.fullPitchAccel;
+            // --- Rotate body-up into the world (ENU) via attitude ---
+            const cP = Math.cos(row.roll);
+            const sP = Math.sin(row.roll);
+            const cT = Math.cos(row.pitch);
+            const sT = Math.sin(row.pitch);
+            const cY = Math.cos(row.yaw);
+            const sY = Math.sin(row.yaw);
+            const ux = cY * sT * cP + sY * sP;
+            const uy = sY * sT * cP - cY * sP;
+            const uz = cT * cP;
+            // --- Net world accel = thrust - gravity - linear drag, integrate ---
+            const ax = aBody * ux - s.drag * est.vx;
+            const ay = aBody * uy - s.drag * est.vy;
+            const az = aBody * uz - G_ACCEL - s.drag * est.vz;
+            est.vx += ax * estDt;
+            est.vy += ay * estDt;
+            est.vz += az * estDt;
+            est.x += est.vx * estDt;
+            est.y += est.vy * estDt;
+            est.z += est.vz * estDt;
+            if (est.z < 0) {
+                est.z = 0;
+                if (est.vz < 0) est.vz = 0;
+            }
+            // The estimated horizontal path IS displayed: the craft moves in
+            // the direction the rotor tilts (thrust vector integration).
+            // Visibility is guaranteed by the chase camera, not by pinning
+            // the craft to the home point.
+            frameX = est.x;
+            frameZ = -est.y; // scene north → -z (same as the GPS path)
+            frameAlt = est.z;
+            // --- Barometer vertical override (preferred when available) ---
+            if (baroMode && row.baro != null) {
+                if (baroBase == null) baroBase = row.baro;
+                baroSmooth = baroSmooth == null ? row.baro : baroSmooth + baroAlpha * (row.baro - baroSmooth);
+                const baroVal = s.verticalSource === "baro" ? row.baro : baroSmooth;
+                frameAlt = (baroVal - baroBase) / 100; // RF altitude is cm → m
+            }
+        } else {
+            const gps = interpolateGpsAt(Math.min(t, endTime));
+            const gpsAltM = gps ? (gps.gpsAlt || 0) / 10 : (row.gpsAlt || 0) / 10;
+            const lat = gps ? gps.lat / 1e7 : homeLat;
+            const lon = gps ? gps.lon / 1e7 : homeLon;
+            const dLat = (lat - homeLat) * 111320;
+            const dLon = (lon - homeLon) * 111320 * Math.cos((homeLat * Math.PI) / 180);
+            frameX = dLon;
+            frameZ = -dLat;
+            frameAlt = gpsAltM - homeAsl;
+        }
         frames.push({
             t: Math.min(t, endTime),
-            x: dLon,
-            z: -dLat,
-            alt: gpsAltM - homeAsl,
+            x: frameX,
+            z: frameZ,
+            alt: frameAlt,
             roll: row.roll,
             pitch: row.pitch,
             yaw: row.yaw,
             throttle: row.throttle,
             vx: 0,
             vz: 0,
-            baroAltM: gpsAltM,
-            gpsAltM,
+            baroAltM: frameAlt,
+            gpsAltM: frameAlt,
             aAlt: rawAbAt(Math.min(t, endTime), iAAlt),
             bAlt: rawAbAt(Math.min(t, endTime), iBAlt),
             mode: rawModeAt(Math.min(t, endTime)),
@@ -647,99 +789,27 @@ function frameAt(t) {
 }
 
 // ---------------------------------------------------------------------------
-// Contrail
+// Contrail (removed per user request — no smoke trail)
 // ---------------------------------------------------------------------------
-const WING_HALF_SPAN = 3.1;
-const CONTRAIL_COUNT = 120;
-const CONTRAIL_LIFE = 3.6;
-const CONTRAIL_SIZE = 0.6;
-const contrailGroup = new THREE.Group();
-const contrailLeft = [];
-const contrailRight = [];
-let contrailAccum = 0;
-function spawnContrail(worldPos, side) {
-    const pool = side === "left" ? contrailLeft : contrailRight;
-    const geom = new THREE.PlaneGeometry(CONTRAIL_SIZE, CONTRAIL_SIZE);
-    const mat = new THREE.MeshBasicMaterial({
-        color: contrailGroup.userData.color || 0xffffff,
-        transparent: true,
-        opacity: 0.7,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-    });
-    const sprite = new THREE.Mesh(geom, mat);
-    sprite.position.copy(worldPos);
-    sprite.lookAt(camera.position);
-    sprite.userData.life = CONTRAIL_LIFE;
-    sprite.userData.maxLife = CONTRAIL_LIFE;
-    contrailGroup.add(sprite);
-    pool.push(sprite);
-}
-function updateContrail(dt, color) {
-    contrailAccum += dt;
-    for (const side of ["left", "right"]) {
-        const pool = side === "left" ? contrailLeft : contrailRight;
-        for (let i = pool.length - 1; i >= 0; i--) {
-            const p = pool[i];
-            p.userData.life -= dt;
-            p.material.opacity = Math.max(0, p.userData.life / p.userData.maxLife) * 0.7;
-            p.scale.setScalar(Math.max(0.01, p.userData.life / p.userData.maxLife));
-            if (p.userData.life <= 0) {
-                contrailGroup.remove(p);
-                p.geometry.dispose();
-                p.material.dispose();
-                pool.splice(i, 1);
-            }
-        }
-    }
-    for (const side of ["left", "right"]) {
-        const pool = side === "left" ? contrailLeft : contrailRight;
-        while (pool.length > CONTRAIL_COUNT) {
-            const old = pool.shift();
-            contrailGroup.remove(old);
-            old.geometry.dispose();
-            old.material.dispose();
-        }
-    }
-    contrailGroup.userData.color = color;
-}
-function setContrailColor(fr) {
-    const mode = fr && fr.mode != null ? fr.mode | 0 : 0;
-    const isAuto = (mode & ~1) !== 0;
-    const color = isAuto ? 0xff99cc : 0xffffff;
-    if (contrailGroup.userData.color !== color) {
-        contrailGroup.userData.color = color;
-        for (const side of ["left", "right"]) {
-            const pool = side === "left" ? contrailLeft : contrailRight;
-            for (const p of pool) p.material.color.setHex(color);
-        }
-    }
-}
-function clearContrail() {
-    for (const side of ["left", "right"]) {
-        const pool = side === "left" ? contrailLeft : contrailRight;
-        while (pool.length) {
-            const p = pool.pop();
-            contrailGroup.remove(p);
-            p.geometry.dispose();
-            p.material.dispose();
-        }
-    }
-    contrailGroup.userData.color = null;
-    contrailAccum = 0;
-}
 
-function applyFrame(fr) {
+function applyFrame(fr, opts = {}) {
     if (!airplane || !fr) return;
     airplane.position.x = fr.x;
     airplane.position.z = fr.z;
     const altRel = (fr.alt || 0) * 1;
     // With GPS the craft follows the logged altitude (starts on the ground).
-    // Without GPS the altitude is always 0, so hover 3 m above the ground
-    // instead of sitting on it.
-    airplane.position.y = altRel + (hasGps ? 0 : 3) + 1.5;
-
-    if (hudAltRel) hudAltRel.textContent = altRel.toFixed(1);
+    // Without GPS the estimator already starts at the configured start
+    // altitude, so no extra lift; the +3 lift only applies to the legacy
+    // flat-at-origin case (estimator unavailable).
+    const groundLift = hasGps || estWithoutGps.value ? 0 : 3;
+    // User spec (no-GPS seek): when the barometer is not being used, scrubbing
+    // the timeline must KEEP the previously displayed height instead of
+    // following the (unreliable) collective-integrated altitude.
+    const holdAlt = !!opts.holdAlt && estWithoutGps.value && lastBuildBaroMode === "off";
+    if (!holdAlt) {
+        airplane.position.y = altRel + groundLift + 1.5;
+        if (hudAltRel) hudAltRel.textContent = altRel.toFixed(1);
+    }
     const speed = Math.sqrt((fr.vx || 0) * (fr.vx || 0) + (fr.vz || 0) * (fr.vz || 0));
     if (hudSpeed) hudSpeed.textContent = speed.toFixed(1);
     const distToHome = Math.sqrt((fr.x || 0) * (fr.x || 0) + (fr.z || 0) * (fr.z || 0));
@@ -762,20 +832,6 @@ function applyFrame(fr) {
     airplane.rotation.set(-fr.pitch, -fr.yaw + yawOffset, -fr.roll, "YXZ");
 
     updateABMarkers(fr);
-
-    if (airplane && (fr.alt || 0) > 0.5) {
-        const localLeft = new THREE.Vector3(-WING_HALF_SPAN, 0.2, 0);
-        const localRight = new THREE.Vector3(WING_HALF_SPAN, 0.2, 0);
-        airplane.localToWorld(localLeft);
-        airplane.localToWorld(localRight);
-        if (contrailAccum >= 0.075) {
-            spawnContrail(localLeft, "left");
-            spawnContrail(localRight, "right");
-            contrailAccum = 0;
-        }
-        setContrailColor(fr);
-    }
-    updateContrail(0.016, contrailGroup.userData.color || 0xffffff);
 }
 function updatePropellers(dt, throttle) {
     const maxRpm = 400;
@@ -799,7 +855,6 @@ function resetPlayback() {
     gpsFixes = [];
     startTime = 0;
     endTime = 0;
-    clearContrail();
     clearMarkers();
     if (seekRef.value) seekRef.value.value = 0;
     timeLabel.value = "0.0s";
@@ -822,7 +877,6 @@ function prepareFromActiveLog(autoplay) {
         const { out } = data;
         if (!out.length) throw new Error("No data rows found");
         loadAirplane();
-        clearContrail();
         buildFrames(data);
         const markerCount = buildMarkers(data);
         applyAirfieldAlignment();
@@ -830,7 +884,7 @@ function prepareFromActiveLog(autoplay) {
         if (seekRef.value) seekRef.value.value = 0;
         const fr = frameAt(playT);
         applyFrame(fr);
-        status.value = `Loaded: ${frames.length} frames (${PLAYBACK_HZ}Hz), GPS ${hasGps ? `interpolated from ${gpsFixes.length} fixes` : "unavailable"}${markerCount ? `, ${markerCount} markers` : ""}`;
+        status.value = `Loaded: ${frames.length} frames (${PLAYBACK_HZ}Hz), ${lastBuildEstimator ? `flight estimated from collective+attitude (baro: ${lastBuildBaroMode})` : `GPS interpolated from ${gpsFixes.length} fixes`}${markerCount ? `, ${markerCount} markers` : ""}`;
         timeLabel.value = "0.0s";
         setPlaying(!!autoplay);
     } catch (err) {
@@ -851,6 +905,8 @@ function onReplay() {
         playT = startTime;
         if (seekRef.value) seekRef.value.value = 0;
         timeLabel.value = "0.0s";
+        applyFrame(frameAt(startTime), { holdAlt: true });
+        snapCameraToCraft();
         setPlaying(true);
         return;
     }
@@ -864,11 +920,30 @@ function onTogglePlay() {
     }
     setPlaying(!playingFlag);
 }
+// Snap the chase camera onto the craft's current position (keeping the
+// user's orbit offset). Used when scrubbing the timeline / resetting the
+// view while paused, where the lerp-based playback chase doesn't run.
+function snapCameraToCraft() {
+    if (!camera || !controls || !airplane) return;
+    const t = airplane.position.clone();
+    const delta = t.clone().sub(controls.target);
+    controls.target.copy(t);
+    camera.position.add(delta);
+    camTargetY = t.y;
+}
 function onResetView() {
     if (!camera) return;
-    camera.position.copy(CAM_HOME);
-    controls.target.set(0, 2, 0);
-    camTargetY = 2;
+    if (airplane) {
+        // Re-frame the craft wherever it is on the (possibly long) estimated
+        // path — a fixed home viewpoint would leave it out of frame.
+        camera.position.set(airplane.position.x, airplane.position.y + 25, airplane.position.z + 55);
+        controls.target.copy(airplane.position);
+        camTargetY = airplane.position.y;
+    } else {
+        camera.position.copy(CAM_HOME);
+        controls.target.set(0, 2, 0);
+        camTargetY = 2;
+    }
 }
 function onFullScreen() {
     const el = rootRef.value;
@@ -887,7 +962,8 @@ function onSeek() {
     playT = startTime + (endTime - startTime) * frac;
     setPlaying(false);
     const fr = frameAt(playT);
-    applyFrame(fr);
+    applyFrame(fr, { holdAlt: true });
+    snapCameraToCraft();
     timeLabel.value = `${((playT - startTime) / 1e6).toFixed(1)}s`;
 }
 
@@ -924,7 +1000,13 @@ function animate(ts) {
             if (Math.abs(dy) < 0.5) dy = 0;
             const ty = camTargetY + dy * 0.01;
             camTargetY = ty;
+            // Chase: translate the camera by the same amount the look-at target
+            // moves, so the craft stays framed during playback no matter how
+            // far the estimated path travels (the user's orbit offset around
+            // the craft is preserved).
+            const before = controls.target.clone();
             controls.target.lerp(new THREE.Vector3(tx, ty, tz), 0.25);
+            camera.position.add(controls.target.clone().sub(before));
         }
         timeLabel.value = `${((playT - startTime) / 1e6).toFixed(1)}s`;
     }
@@ -982,7 +1064,6 @@ function init() {
     worldGroup = new THREE.Group();
     scene.add(worldGroup);
     buildEnvironment();
-    scene.add(contrailGroup);
     loadAirplane();
 
     hudAltRel = rootRef.value.querySelector("#b3dAltRel");
@@ -1013,7 +1094,6 @@ function dispose() {
         resizeObserver = null;
     }
     setPlaying(false);
-    clearContrail();
     if (worldGroup) {
         worldGroup.traverse((o) => {
             if (o.geometry) o.geometry.dispose();
@@ -1114,6 +1194,12 @@ onBeforeUnmount(() => {
 }
 .b3d-btn--close:hover {
     background: #475569 !important;
+}
+.b3d-btn--active {
+    background: #1e8fc0 !important;
+    box-shadow:
+        inset 0 0 0 2px #ffd54a,
+        0 0 0 1px rgba(0, 0, 0, 0.4);
 }
 .b3d-sep {
     width: 1px;
