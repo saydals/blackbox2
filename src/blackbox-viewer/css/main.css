@@ -760,6 +760,23 @@
     min-width: 80px;
 }
 
+/*
+ * 3D BLACKBOX overlay — replaces the graph area (graph + legend) while open.
+ * .graph-row is position:fixed, so absolute inset:0 anchors to it; the graph
+ * stays mounted behind (v-show) so the imperative canvases are never
+ * destroyed, while this panel covers it with its own background.
+ */
+.blackbox-3d-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    flex: 1 1 auto;
+    min-width: 0;
+    background: #87b9e6;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
 .video-top-controls,
 .log-graph {
     display: none;

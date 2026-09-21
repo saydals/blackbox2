@@ -6,6 +6,11 @@ export const useAppStore = defineStore("app", () => {
     const viewVideo = ref(true);
     const darkThemeEnabled = ref(false);
 
+    // 3D BLACKBOX overlay — replaces the graph area (graph + legend) while
+    // open. Independent of the graph renderers; the page replays the
+    // already-open viewer log with its own controls.
+    const blackbox3DOpen = ref(false);
+
     // True while the viewer is the visible tab. Embedded, the host tab flips this on
     // activate/deactivate so the viewer's document-level handlers (keyboard, wheel, drag) go
     // dormant behind other tabs. Defaults true so the standalone viewer is unaffected.
@@ -56,6 +61,7 @@ export const useAppStore = defineStore("app", () => {
         legendHidden,
         viewVideo,
         darkThemeEnabled,
+        blackbox3DOpen,
         viewerActive,
         logFilename,
         statusVersion,

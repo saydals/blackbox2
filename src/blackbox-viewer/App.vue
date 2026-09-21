@@ -48,6 +48,7 @@
                         />
                         <LogPanel />
                         </div>
+                        <Blackbox3DButton v-model="appStore.blackbox3DOpen" />
                         <div class="toolbar-panel toolbar-panel--menu-wrap">
                             <AppMenu
                                 @export-bbl="onExportBbl"
@@ -59,7 +60,16 @@
                         </div>
                     </div>
                     <div id="screenshot-frame" class="graph-row">
-                        <div id="log-graph" class="log-graph">
+                        <!-- 3D BLACKBOX replaces the graph area (graph + legend)
+                            while open. v-if (not v-show) so the WebGL renderer
+                            mounts only while visible and frees its context on
+                            close — mirroring the configurator tab lifecycle. -->
+                        <Blackbox3DPanel
+                            v-if="appStore.blackbox3DOpen"
+                            class="blackbox-3d-overlay"
+                            @close="appStore.blackbox3DOpen = false"
+                        />
+                        <div v-show="!appStore.blackbox3DOpen" id="log-graph" class="log-graph">
                             <!--
                                 Graph-only fullscreen toggle. Sits in the top-left corner of the
                                 graph canvas, immediately to the left of the filename overlay.
@@ -93,7 +103,7 @@
                             <div id="mapContainer" class="map-container"></div>
                             <canvas width="0" height="0" id="stickCanvas"></canvas>
                         </div>
-                        <LegendPanel />
+                        <LegendPanel v-show="!appStore.blackbox3DOpen" />
                         <div id="mouseNotification" class="mouseNotification"></div>
                     </div>
                 </div>
@@ -148,6 +158,8 @@ import ZoomPanel from "./components/ZoomPanel.vue";
 import SyncPanel from "./components/SyncPanel.vue";
 import WorkspacePanel from "./components/WorkspacePanel.vue";
 import LogPanel from "./components/LogPanel.vue";
+import Blackbox3DButton from "./components/Blackbox3DButton.vue";
+import Blackbox3DPanel from "./components/Blackbox3DPanel.vue";
 import StatusBar from "./components/StatusBar.vue";
 import KeysDialog from "./components/KeysDialog.vue";
 import UserSettingsDialog from "./components/UserSettingsDialog.vue";
