@@ -39,3 +39,31 @@ npm run android:sync   # dist 빌드 + capacitor sync
 npm run android:open   # Android Studio 열기
 npm run android:run    # 기기/에뮬레이터 실행
 ```
+
+## 안드로이드 버전 (APK 다운로드)
+
+빌드된 APK는 GitHub Releases에서 내려받을 수 있다.
+
+- **APK 직접 다운로드 (최신 릴리즈)**:
+  <https://github.com/saydals/blackbox2/releases/latest/download/blackbox-debug.apk>
+- **릴리즈 페이지**:
+  <https://github.com/saydals/blackbox2/releases>
+- 현재 릴리즈: `v2026.12.0-alpha` (debug 서명 APK, `blackbox-debug.apk`)
+
+설치: APK를 기기로 내려받아 열면 설치된다. 최초 설치 시
+"출처를 알 수 없는 앱 설치" 허용이 필요하다.
+
+새 APK를 릴리즈에 올릴 때는(`gh` CLI 미설치 환경) GitHub API를 사용한다:
+
+```sh
+TOKEN=<GitHub PAT>
+# 1) 릴리즈 생성
+curl -s -X POST https://api.github.com/repos/saydals/blackbox2/releases \
+  -H "Authorization: token $TOKEN" \
+  -d '{"tag_name":"<태그>","name":"<제목>","body":"<설명>","prerelease":true}'
+# 2) 응답의 id로 에셋 업로드
+curl -s -X POST "https://uploads.github.com/repos/saydals/blackbox2/releases/<릴리즈ID>/assets?name=blackbox-debug.apk" \
+  -H "Authorization: token $TOKEN" \
+  -H "Content-Type: application/vnd.android.package-archive" \
+  --data-binary @blackbox-debug.apk
+```
