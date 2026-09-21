@@ -120,7 +120,8 @@ const EST_KEY = "blackbox3dEstimatorSettings2"; // v2: baro-preferred vertical, 
 const EST_DEFAULTS = {
     verticalSource: "baroSmooth", // "none" = collective estimate, "baro" = raw, "baroSmooth" = smoothed
     baroSmoothing: 0.8, // 0..0.95 EMA strength (baroSmooth only)
-    hoverCollective: 50, // % where net vertical accel is 0
+    autoHover: true, // calibrate the hover point from the log's collective median
+    hoverCollective: 0, // manual hover point (autoHover=false only)
     fullPitchAccel: 10, // m/s² extra accel at 100% collective
     drag: 0.15, // linear velocity damping (1/s) — bounds drift
     startAltitude: 3, // m above ground at t=0 (no GPS)
@@ -178,11 +179,16 @@ let hasGps = false;
 let playingFlag = false;
 let playT = 0;
 let lastPlayWall = 0;
+// Without-GPS flight estimation: dead-reckoned paths drift fast, so the
+// estimated craft is fenced to this radius (metres) around the home point.
+const HOME_LIMIT = 100;
+
 let sourceRows = [];
 let gpsFixes = [];
 // Build summary for the status line (set by buildFrames).
 let lastBuildEstimator = false;
 let lastBuildBaroMode = "";
+let lastBuildHover = 0;
 const PLAYBACK_HZ = 50;
 const PLAYBACK_STEP_US = 1e6 / PLAYBACK_HZ;
 
@@ -642,6 +648,17 @@ function buildFrames(data) {
     hasGpsFlag.value = hasGps;
     hasBaro.value = sourceRows.some((r) => r.baro != null);
     const s = estSettings.value;
+    // Auto-calibrate the hover point: RC collective fields are stick-centred
+    // (≈ -100..100 with hover near the log median, NOT 0..100 with hover at
+    // 50). Using the raw median makes "more collective than usual → climb"
+    // hold for any FC's units. The dialog checkbox turns this off to use the
+    // manually entered value instead.
+    let hoverColl = s.hoverCollective;
+    if (s.autoHover) {
+        const cols = sourceRows.map((r) => r.collective).filter((v) => v != null && Number.isFinite(v)).sort((a, b) => a - b);
+        if (cols.length) hoverColl = cols[Math.floor(cols.length / 2)];
+    }
+    lastBuildHover = Math.round(hoverColl * 10) / 10;
     lastBuildEstimator = useEstimator;
     lastBuildBaroMode =
         useEstimator && s.verticalSource !== "none" && hasBaro.value
@@ -668,7 +685,7 @@ function buildFrames(data) {
         if (useEstimator) {
             // --- Thrust from collective (body frame, up axis) ---
             const coll = row.collective ?? 0;
-            const aBody = G_ACCEL + (coll - s.hoverCollective) * 0.01 * s.fullPitchAccel;
+            const aBody = G_ACCEL + (coll - hoverColl) * 0.01 * s.fullPitchAccel;
             // --- Rotate body-up into the world (ENU) via attitude ---
             const cP = Math.cos(row.roll);
             const sP = Math.sin(row.roll);
@@ -692,6 +709,22 @@ function buildFrames(data) {
             if (est.z < 0) {
                 est.z = 0;
                 if (est.vz < 0) est.vz = 0;
+            }
+            // --- Field fence: dead reckoning drifts fast, so keep the craft
+            // inside HOME_LIMIT metres of the home point. On reaching the
+            // fence, zero the outward velocity component so the craft slides
+            // along the boundary instead of sticking to it.
+            const dist = Math.hypot(est.x, est.y);
+            if (dist > HOME_LIMIT) {
+                const nx = est.x / dist;
+                const ny = est.y / dist;
+                est.x = nx * HOME_LIMIT;
+                est.y = ny * HOME_LIMIT;
+                const outward = est.vx * nx + est.vy * ny;
+                if (outward > 0) {
+                    est.vx -= outward * nx;
+                    est.vy -= outward * ny;
+                }
             }
             // The estimated horizontal path IS displayed: the craft moves in
             // the direction the rotor tilts (thrust vector integration).
@@ -884,7 +917,7 @@ function prepareFromActiveLog(autoplay) {
         if (seekRef.value) seekRef.value.value = 0;
         const fr = frameAt(playT);
         applyFrame(fr);
-        status.value = `Loaded: ${frames.length} frames (${PLAYBACK_HZ}Hz), ${lastBuildEstimator ? `flight estimated from collective+attitude (baro: ${lastBuildBaroMode})` : `GPS interpolated from ${gpsFixes.length} fixes`}${markerCount ? `, ${markerCount} markers` : ""}`;
+        status.value = `Loaded: ${frames.length} frames (${PLAYBACK_HZ}Hz), ${lastBuildEstimator ? `flight estimated from collective+attitude (hover≈${lastBuildHover}, baro: ${lastBuildBaroMode})` : `GPS interpolated from ${gpsFixes.length} fixes`}${markerCount ? `, ${markerCount} markers` : ""}`;
         timeLabel.value = "0.0s";
         setPlaying(!!autoplay);
     } catch (err) {

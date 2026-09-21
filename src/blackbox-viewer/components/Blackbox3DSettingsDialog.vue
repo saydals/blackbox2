@@ -43,12 +43,30 @@
                 </div>
 
                 <div class="flex items-center gap-3">
-                    <span class="w-40 text-dimmed" title="Collective % where the craft neither climbs nor sinks">Hover collective (%)</span>
-                    <input v-model.number="local.hoverCollective" type="number" min="0" max="100" step="1" class="b3d-num" />
+                    <label class="flex items-center gap-2 cursor-pointer" title="Detect the hover point from the log's collective median (recommended)">
+                        <input v-model="local.autoHover" type="checkbox" />
+                        <span class="font-semibold">Auto hover point (from log)</span>
+                    </label>
                 </div>
 
                 <div class="flex items-center gap-3">
-                    <span class="w-40 text-dimmed" title="Extra upward acceleration at 100% collective">Full-pitch climb accel (m/s²)</span>
+                    <span
+                        class="w-40 text-dimmed"
+                        title="Collective value where the craft neither climbs nor sinks — used when auto is off. In stick-centred logs hover is usually near 0, not 50."
+                    >Hover collective (manual)</span>
+                    <input
+                        v-model.number="local.hoverCollective"
+                        type="number"
+                        min="-100"
+                        max="100"
+                        step="1"
+                        class="b3d-num"
+                        :disabled="local.autoHover"
+                    />
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <span class="w-40 text-dimmed" title="Extra upward acceleration at full collective above the hover point">Full-pitch climb accel (m/s²)</span>
                     <input v-model.number="local.fullPitchAccel" type="number" min="0" max="30" step="0.5" class="b3d-num" />
                 </div>
 
@@ -94,7 +112,8 @@ const open = computed({
 const DEFAULTS = {
     verticalSource: "baroSmooth",
     baroSmoothing: 0.8,
-    hoverCollective: 50,
+    autoHover: true,
+    hoverCollective: 0,
     fullPitchAccel: 10,
     drag: 0.15,
     startAltitude: 3,
