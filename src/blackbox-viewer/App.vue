@@ -60,10 +60,11 @@
                         </div>
                     </div>
                     <div id="screenshot-frame" class="graph-row">
-                        <!-- 3D BLACKBOX replaces the graph area (graph + legend)
-                            while open. v-if (not v-show) so the WebGL renderer
-                            mounts only while visible and frees its context on
-                            close — mirroring the configurator tab lifecycle. -->
+                        <!-- 3D BLACKBOX replaces ONLY the graph area (#log-graph)
+                            while open — the LegendPanel keeps its normal slot and
+                            size. v-if (not v-show) so the WebGL renderer mounts
+                            only while visible and frees its context on close —
+                            mirroring the configurator tab lifecycle. -->
                         <Blackbox3DPanel
                             v-if="appStore.blackbox3DOpen"
                             class="blackbox-3d-overlay"
@@ -103,7 +104,10 @@
                             <div id="mapContainer" class="map-container"></div>
                             <canvas width="0" height="0" id="stickCanvas"></canvas>
                         </div>
-                        <LegendPanel v-show="!appStore.blackbox3DOpen" />
+                        <!-- Legend stays mounted and visible at its normal size
+                            while the 3D BLACKBOX page is open — the 3D panel
+                            occupies only the #log-graph flex slot. -->
+                        <LegendPanel />
                         <div id="mouseNotification" class="mouseNotification"></div>
                     </div>
                 </div>

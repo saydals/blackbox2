@@ -761,16 +761,17 @@
 }
 
 /*
- * 3D BLACKBOX overlay — replaces the graph area (graph + legend) while open.
- * .graph-row is position:fixed, so absolute inset:0 anchors to it; the graph
- * stays mounted behind (v-show) so the imperative canvases are never
- * destroyed, while this panel covers it with its own background.
+ * 3D BLACKBOX overlay — replaces ONLY the graph area (#log-graph) while open.
+ * It is an in-flow flex item of .graph-row (NOT absolute/inset) that takes
+ * exactly the slot the hidden .log-graph (v-show, canvases stay mounted
+ * behind) occupied: `flex: 1 1 0` mirrors .log-graph's `flex-grow: 1`, and
+ * align-items: stretch (flex default) gives it the same full row height.
+ * LegendPanel (.log-graph-config) keeps its fixed flex-basis
+ * (200px + --legend-value-reserve), so its size NEVER changes while the 3D
+ * page is open.
  */
 .blackbox-3d-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 7;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-width: 0;
     background: #87b9e6;
     border-radius: 6px;
