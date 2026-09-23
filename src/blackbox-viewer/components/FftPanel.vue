@@ -5,7 +5,7 @@
             <div class="fft-title">
                 <span class="fft-title-icon"><UIcon name="i-lucide-activity" class="size-4" /></span>
                 <span class="fft-title-text">FFT Vibration Frequency Spectrum</span>
-                <span class="fft-title-field">{{ activeGyroSource.value === 'raw' ? 'gyroRAW' : 'gyroADC' }}</span>
+                <span class="fft-title-field">{{ activeGyroSource === 'raw' ? 'gyroRAW' : 'gyroADC' }}</span>
             </div>
 
             <div class="fft-controls">
@@ -30,11 +30,11 @@
                         (activeGyroSource === 'raw'
                             ? 'Analysis data: Raw Gyro — gyroRAW (before the gyro filters)'
                             : 'Analysis data: Filtered Gyro — gyroADC (after the gyro filters)') +
-                        gyroSourceWarning.value
+                        gyroSourceWarning
                     "
                     @click="toggleGyroSource"
                 >
-                    {{ gyroSourceLabel.value }}
+                    {{ gyroSourceLabel }}
                 </button>
 
                 <!-- Peak markers toggle -->
@@ -226,7 +226,10 @@ const bladeCount = 2;
 
 // ---- Gyro data source: Filtered (gyroADC, after filters) vs Raw (gyroRAW, before filters) ----
 // Effective source — falls back to whichever is available when the chosen one is missing.
-const gyroDataSource = ref<'filtered' | 'raw'>('raw');
+// NOTE: plain JS SFC (no lang="ts") — a TS generic like ref<'filtered' | 'raw'>('raw')
+// is NOT valid here: it silently parses as `(ref < 'filtered') | ('raw' > 'raw')` === 0,
+// so ref() never runs and the toggle breaks. Pass the default as a plain argument.
+const gyroDataSource = ref("raw");
 const gyroSourceAvailable = computed(() => {
     const log = logStore.flightLog;
     if (!log) return { filtered: false, raw: false };
@@ -240,7 +243,7 @@ const activeGyroSource = computed(() => {
     if (gyroSourceAvailable.value[gyroDataSource.value]) return gyroDataSource.value;
     return gyroSourceAvailable.value.filtered ? 'filtered' : gyroSourceAvailable.value.raw ? 'raw' : 'filtered';
 });
-const gyroSourceLabel = computed(() => activeGyroSource.value === 'raw' ? 'Raw' : 'Filtered');
+const gyroSourceLabel = computed(() => activeGyroSource.value === 'raw' ? 'RAW' : 'Filtered');
 const gyroSourceWarning = computed(() => gyroSourceAvailable.value[gyroDataSource.value] ? '' : ' ⚠ Not logged in this log');
 
 // ---- FFT calculation over the currently selected in/out window ----
@@ -920,11 +923,12 @@ watch(
     () => render(),
 );
 
-// Recalculate when the analyzed window (in/out marks) or the log changes while open
-watch(
-    () => [logStore.flightLog, playbackStore.videoExportInTime, playbackStore.videoExportOutTime],
-    () => recalculate(),
-);
+// Recalculate when the analyzed window (in/out marks), the log or the gyro
+// source toggle (RAW <-> Filtered) changes while open
+    watch(
+        () => [logStore.flightLog, playbackStore.videoExportInTime, playbackStore.videoExportOutTime, activeGyroSource.value],
+        () => recalculate(),
+    );
 </script>
 
 <style scoped>
@@ -1028,6 +1032,8 @@ watch(
     min-width: 88px;
     width: 88px;
     flex-shrink: 0;
+    /* the chip is a flex container: text-align does not center flex items */
+    justify-content: center;
     text-align: center;
     padding: 3px 8px;
     font-size: 12px;
