@@ -256,7 +256,7 @@ function recalculate() {
         frameCount += chunk.frames.length;
     }
 
-    if (frameCount < 2048) {
+    if (frameCount < 1024) {
         fftResult.value = null;
         analysisNotice.value = `Not enough samples (${frameCount}) in the selected window for a reliable FFT.`;
         return;
