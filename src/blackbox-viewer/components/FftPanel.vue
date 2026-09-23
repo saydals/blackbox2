@@ -23,19 +23,21 @@
                 </div>
 
                 <!-- Data source toggle: Raw / Filtered gyro — left of the Mark button -->
-                <button
-                    class="fft-chip fft-gyro-btn"
-                    :class="{ 'is-on': activeGyroSource === 'raw' }"
-                    :title="
-                        (activeGyroSource === 'raw'
-                            ? 'Analysis data: Raw Gyro — gyroRAW (before the gyro filters)'
-                            : 'Analysis data: Filtered Gyro — gyroADC (after the gyro filters)') +
-                        gyroSourceWarning.value
-                    "
-                    @click="toggleGyroSource"
-                >
-                    {{ gyroSourceLabel.value }}
-                </button>
+                <div class="toolbar-panel">
+                    <button
+                        class="fft-chip fft-gyro-btn"
+                        :class="{ 'is-on': activeGyroSource === 'raw' }"
+                        :title="
+                            (activeGyroSource === 'raw'
+                                ? 'Analysis data: Raw Gyro — gyroRAW (before the gyro filters)'
+                                : 'Analysis data: Filtered Gyro — gyroADC (after the gyro filters)') +
+                            gyroSourceWarning.value
+                        "
+                        @click="toggleGyroSource"
+                    >
+                        {{ gyroSourceLabel.value }}
+                    </button>
+                </div>
 
                 <!-- Peak markers toggle -->
                 <button
@@ -187,7 +189,7 @@ function onHeadSpeedChange() {
 }
 
 function toggleGyroSource() {
-    gyroSource.value = activeGyroSource.value === 'raw' ? 'filtered' : 'raw';
+    gyroDataSource.value = gyroDataSource.value === 'raw' ? 'filtered' : 'raw';
 }
 
 // Small chip next to the head-speed input telling where the value came from
@@ -226,7 +228,7 @@ const bladeCount = 2;
 
 // ---- Gyro data source: Filtered (gyroADC, after filters) vs Raw (gyroRAW, before filters) ----
 // Effective source — falls back to whichever is available when the chosen one is missing.
-const gyroSource = ref<'filtered' | 'raw'>('raw');
+const gyroDataSource = ref<'filtered' | 'raw'>('raw');
 const gyroSourceAvailable = computed(() => {
     const log = logStore.flightLog;
     if (!log) return { filtered: false, raw: false };
@@ -237,11 +239,11 @@ const gyroSourceAvailable = computed(() => {
 });
 // Effective source — falls back to whichever is available when the chosen one is missing.
 const activeGyroSource = computed(() => {
-    if (gyroSourceAvailable.value[gyroSource.value]) return gyroSource.value;
+    if (gyroSourceAvailable.value[gyroDataSource.value]) return gyroDataSource.value;
     return gyroSourceAvailable.value.filtered ? 'filtered' : gyroSourceAvailable.value.raw ? 'raw' : 'filtered';
 });
 const gyroSourceLabel = computed(() => activeGyroSource.value === 'raw' ? 'Raw' : 'Filtered');
-const gyroSourceWarning = computed(() => gyroSourceAvailable.value[gyroSource.value] ? '' : ' ⚠ Not logged in this log');
+const gyroSourceWarning = computed(() => gyroSourceAvailable.value[gyroDataSource.value] ? '' : ' ⚠ Not logged in this log');
 
 // ---- FFT calculation over the currently selected in/out window ----
 
@@ -1028,10 +1030,6 @@ watch(
     width: 76px;
     flex-shrink: 0;
     text-align: center;
-    min-height: 52px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
 }
 
 .dot {
