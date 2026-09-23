@@ -5,7 +5,7 @@
             <div class="fft-title">
                 <span class="fft-title-icon"><UIcon name="i-lucide-activity" class="size-4" /></span>
                 <span class="fft-title-text">FFT Vibration Frequency Spectrum</span>
-                <span class="fft-title-field">gyroADC</span>
+                <span class="fft-title-field">{{ activeGyroSource === 'raw' ? 'gyroRAW' : 'gyroADC' }}</span>
             </div>
 
             <div class="fft-controls">
@@ -21,6 +21,21 @@
                         <span class="dot dot-yaw"></span>Yaw
                     </button>
                 </div>
+
+                <!-- Data source toggle: Raw / Filtered gyro — left of the Mark button -->
+                <button
+                    class="fft-chip"
+                    :class="{ 'is-on': activeGyroSource === 'raw' }"
+                    :title="
+                        (activeGyroSource === 'raw'
+                            ? 'Analysis data: Raw Gyro — gyroRAW (before the gyro filters)'
+                            : 'Analysis data: Filtered Gyro — gyroADC (after the gyro filters)') +
+                        (gyroSourceAvailable[activeGyroSource] ? '' : ' ⚠ Not logged in this log')
+                    "
+                    @click="toggleGyroSource"
+                >
+                    {{ activeGyroSource === 'raw' ? 'Raw' : 'Filtered' }}
+                </button>
 
                 <!-- Peak markers toggle -->
                 <button
@@ -171,6 +186,10 @@ function onHeadSpeedChange() {
     rpmSource.value = "manual";
 }
 
+function toggleGyroSource() {
+    gyroSource.value = activeGyroSource.value === 'raw' ? 'filtered' : 'raw';
+}
+
 // Small chip next to the head-speed input telling where the value came from
 const rpmBadge = computed(() => {
     switch (rpmSource.value) {
@@ -205,6 +224,23 @@ const tail1P = computed(() => main1P.value * 4.45); // vibanalyse default tailGe
 const motor1P = computed(() => main1P.value * 10.0);
 const bladeCount = 2;
 
+// ---- Gyro data source: Filtered (gyroADC, after filters) vs Raw (gyroRAW, before filters) ----
+// The user can toggle between them; if the chosen one is not logged we fall back automatically.
+const gyroSource = ref<'filtered' | 'raw'>('filtered');
+const gyroSourceAvailable = computed(() => {
+    const log = logStore.flightLog;
+    if (!log) return { filtered: false, raw: false };
+    return {
+        filtered: log.getMainFieldIndexByName('gyroADC[0]') !== undefined,
+        raw: log.getMainFieldIndexByName('gyroRAW[0]') !== undefined,
+    };
+});
+// Effective source — falls back to whichever is available when the chosen one is missing.
+const activeGyroSource = computed(() => {
+    if (gyroSourceAvailable.value[gyroSource.value]) return gyroSource.value;
+    return gyroSourceAvailable.value.filtered ? 'filtered' : gyroSourceAvailable.value.raw ? 'raw' : 'filtered';
+});
+
 // ---- FFT calculation over the currently selected in/out window ----
 
 function selectionSeconds() {
@@ -231,14 +267,17 @@ function recalculate() {
 
     const { start, end } = selectionSeconds();
 
-    // Field lookup — gyroADC[n] is the filtered gyro the graph panel plots
-    const gyroIdx = [0, 1, 2].map((i) => log.getMainFieldIndexByName(`gyroADC[${i}]`));
+    // Field lookup — gyroADC (filtered) or gyroRAW (raw), chosen by the user toggle.
+    const sourceName = activeGyroSource.value;
+    const fieldName = sourceName === 'raw' ? 'gyroRAW' : 'gyroADC';
+    const gyroIdx = [0, 1, 2].map((i) => log.getMainFieldIndexByName(`${fieldName}[${i}]`));
     if (gyroIdx.some((i) => i === undefined)) {
         fftResult.value = null;
-        analysisNotice.value = "This log has no gyroADC data, so it cannot be analyzed.";
+        analysisNotice.value = `${
+            sourceName === 'raw' ? 'Raw Gyro (gyroRAW)' : 'Filtered Gyro (gyroADC)'
+        } is not logged in this log, so it cannot be analyzed.`;
         return;
     }
-
     const blackboxRate = log.getBlackboxRate() || log.getActualLogRate();
     if (!blackboxRate || blackboxRate <= 0) {
         fftResult.value = null;
