@@ -47,9 +47,9 @@
                             @rename-workspace="onRenameWorkspace"
                         />
                         <LogPanel />
-                        </div>
                         <Blackbox3DButton v-model="appStore.blackbox3DOpen" />
                         <FftButton v-model="appStore.fftOpen" />
+                        </div>
                         <div class="toolbar-panel toolbar-panel--menu-wrap">
                             <AppMenu
                                 @export-bbl="onExportBbl"
