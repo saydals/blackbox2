@@ -367,9 +367,13 @@ function onGotoBookmark(index) {
 }
 
 // FFT Vibration toggle: opening it auto-selects the analysis window —
-// the middle section of the log (20 s trimmed from both take-off and
-// landing ends) because those produce abnormally large noise. Logs
-// 1 minute or shorter use the full timeline.
+// the middle 3/5 of the timeline: the first 1/5 (take-off) and the last
+// 1/5 (landing) are excluded because those produce abnormally large noise.
+// NOTE: the in/out marks are stored in MICROSECONDS everywhere else
+// (keyboard I/O marks, PlaybackControls "select all", the bbl/video
+// exporters and FftPanel.selectionSeconds all use log-time µs) — the
+// previous code wrote seconds here, so the marks landed at the far left
+// edge of the timeline and the FFT window came out effectively empty.
 // The 3D page and the FFT page share the same graph-area slot, so
 // they are mutually exclusive — opening one closes the other.
 watch(() => appStore.fftOpen, (open) => {
@@ -386,20 +390,13 @@ watch(() => appStore.fftOpen, (open) => {
         return;
     }
 
-    const minSec = log.getMinTime() / 1e6;
-    const maxSec = log.getMaxTime() / 1e6;
-    const duration = maxSec - minSec;
-    const TRIM_SEC = 20;
+    const minUs = log.getMinTime();
+    const maxUs = log.getMaxTime();
+    const durationUs = maxUs - minUs;
 
-    let startSec = minSec;
-    let endSec = maxSec;
-    if (duration > 60) {
-        startSec = minSec + TRIM_SEC;
-        endSec = maxSec - TRIM_SEC;
-    }
-
-    setVideoInTime(startSec);
-    setVideoOutTime(endSec);
+    // Middle 3/5 — skip the first 1/5 and the last 1/5 of the timeline
+    setVideoInTime(minUs + durationUs / 5);
+    setVideoOutTime(maxUs - durationUs / 5);
 });
 
 // Opening the 3D page closes the FFT panel (same slot).
