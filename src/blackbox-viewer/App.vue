@@ -372,7 +372,7 @@ function onGotoBookmark(index) {
 // 1 minute or shorter use the full timeline.
 // The 3D page and the FFT page share the same graph-area slot, so
 // they are mutually exclusive — opening one closes the other.
-watch(appStore.fftOpen, (open) => {
+watch(() => appStore.fftOpen, (open) => {
     if (!open) {
         return;
     }
@@ -403,7 +403,7 @@ watch(appStore.fftOpen, (open) => {
 });
 
 // Opening the 3D page closes the FFT panel (same slot).
-watch(appStore.blackbox3DOpen, (open) => {
+watch(() => appStore.blackbox3DOpen, (open) => {
     if (!open) {
         return;
     }
