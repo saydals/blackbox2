@@ -5,7 +5,7 @@
             <div class="fft-title">
                 <span class="fft-title-icon"><UIcon name="i-lucide-activity" class="size-4" /></span>
                 <span class="fft-title-text">FFT Vibration Frequency Spectrum</span>
-                <span class="fft-title-field">{{ activeGyroSource === 'raw' ? 'gyroRAW' : 'gyroADC' }}</span>
+                <span class="fft-title-field">{{ gyroSourceLabel.value === 'raw' ? 'gyroRAW' : 'gyroADC' }}</span>
             </div>
 
             <div class="fft-controls">
@@ -30,11 +30,11 @@
                         (activeGyroSource === 'raw'
                             ? 'Analysis data: Raw Gyro — gyroRAW (before the gyro filters)'
                             : 'Analysis data: Filtered Gyro — gyroADC (after the gyro filters)') +
-                        (gyroSourceAvailable[activeGyroSource] ? '' : ' ⚠ Not logged in this log')
+                        gyroSourceWarning.value
                     "
                     @click="toggleGyroSource"
                 >
-                    {{ activeGyroSource === 'raw' ? 'Raw' : 'Filtered' }}
+                    {{ gyroSourceLabel.value }}
                 </button>
 
                 <!-- Peak markers toggle -->
@@ -240,6 +240,8 @@ const activeGyroSource = computed(() => {
     if (gyroSourceAvailable.value[gyroSource.value]) return gyroSource.value;
     return gyroSourceAvailable.value.filtered ? 'filtered' : gyroSourceAvailable.value.raw ? 'raw' : 'filtered';
 });
+const gyroSourceLabel = computed(() => activeGyroSource.value === 'raw' ? 'Raw' : 'Filtered');
+const gyroSourceWarning = computed(() => gyroSourceAvailable.value[gyroSource.value] ? '' : ' ⚠ Not logged in this log');
 
 // ---- FFT calculation over the currently selected in/out window ----
 
