@@ -67,6 +67,9 @@ export function SeekBar(canvas) {
     let markDragMode = null;
     //true while the red current-time cursor is being dragged (keeps the ew-resize cursor)
     let cursorDragMode = null;
+    //Severity score badge (noise modes) font size, DPR-scaled in resize(). 3x the
+    //original 12px so the noise strength number is clearly readable on the timeline.
+    let SEVERITY_FONT_SIZE = 36;
 
     this.onSeek = false;
     // Called with the new time while the user drags the in/out boundary line (wired to
@@ -365,8 +368,9 @@ export function SeekBar(canvas) {
 
         CURSOR_WIDTH = 2.5 * ratio;
         BAR_INSET = CURSOR_WIDTH;
-        MARK_LINE_WIDTH = 4 * ratio;
+        MARK_LINE_WIDTH = 8 * ratio;
         MARK_GRAB_THRESHOLD = 8 * ratio;
+        SEVERITY_FONT_SIZE = 36 * ratio;
 
         invalidateBackground();
 
@@ -493,9 +497,10 @@ export function SeekBar(canvas) {
             // readable over the bars in both themes.
             if (severityScore !== null && severityColor) {
                 const scoreText = String(severityScore);
-                backgroundContext.font = "bold 12px sans-serif";
+                const badgePadding = SEVERITY_FONT_SIZE / 12; // scales the 3px/12px pair proportionally
+                backgroundContext.font = `bold ${SEVERITY_FONT_SIZE}px sans-serif`;
                 backgroundContext.textBaseline = "top";
-                backgroundContext.lineWidth = 3;
+                backgroundContext.lineWidth = badgePadding;
                 backgroundContext.strokeStyle = "rgba(0, 0, 0, 0.85)";
                 backgroundContext.strokeText(scoreText, 5, 3);
                 backgroundContext.fillStyle = severityColor;
