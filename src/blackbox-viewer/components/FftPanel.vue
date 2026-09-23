@@ -49,7 +49,7 @@
                 </div>
 
                 <!-- Head speed RPM -->
-                <div class="fft-field" title="Entering the head speed RPM also updates the harmonic marker frequencies">
+                <div class="fft-field" :title="rpmSourceTip">
                     <span>Head speed</span>
                     <input
                         v-model="headSpeedInput"
@@ -59,6 +59,7 @@
                         @change="onHeadSpeedChange"
                     />
                     <span>RPM</span>
+                    <span v-if="rpmBadge" class="fft-badge" :class="rpmBadge.cls">{{ rpmBadge.text }}</span>
                 </div>
 
                 <!-- Max frequency range -->
@@ -127,6 +128,7 @@ import { useLogStore } from "../stores/log.js";
 import { usePlaybackStore } from "../stores/playback.js";
 import { useAppStore } from "../stores/app.js";
 import { computeGyroFft, MIN_ANALYSIS_SEC } from "../vib_fft.js";
+import { estimateRpmFromGyro, logHeadSpeedOverSelection } from "../vib_rpm.js";
 
 const logStore = useLogStore();
 const playbackStore = usePlaybackStore();
@@ -148,6 +150,11 @@ const headSpeedInput = ref(String(appStore.fftHeadSpeedRpm ?? 2300));
 const fftResult = ref(null);
 const analysisNotice = ref(null);
 const hoverInfo = ref(null);
+// Where the current head-speed value came from: "log" (eRPM field averaged over
+// the selection), "estimate" (gyro STFT estimator), "manual" (user typed it) or
+// "auto" before the first resolution pass.
+const rpmSource = ref("auto");
+const rpmBusy = ref(false);
 
 const tooltipLeft = computed(() => {
     const el = containerRef.value;
@@ -160,7 +167,36 @@ function onHeadSpeedChange() {
     const val = digits === "" ? 0 : Math.max(0, Math.min(10000, parseInt(digits, 10)));
     headSpeedInput.value = String(val);
     appStore.fftHeadSpeedRpm = val;
+    // A manual edit takes precedence — stop auto-updating from log/estimate
+    rpmSource.value = "manual";
 }
+
+// Small chip next to the head-speed input telling where the value came from
+const rpmBadge = computed(() => {
+    switch (rpmSource.value) {
+        case "log":
+            return { text: "LOG", cls: "badge-log" };
+        case "estimate":
+            return { text: rpmBusy.value ? "…" : "EST", cls: "badge-est" };
+        case "unavailable":
+            return { text: "N/A", cls: "badge-na" };
+        default:
+            return null;
+    }
+});
+
+const rpmSourceTip = computed(() => {
+    switch (rpmSource.value) {
+        case "log":
+            return "Head speed read from the log's own RPM record (headspeed / eRPM[0]) over the selected window — typing a value overrides it";
+        case "estimate":
+            return "Head speed estimated from the roll/pitch gyro spectrum (this log has no RPM record) — typing a value overrides it";
+        case "unavailable":
+            return "No RPM record in this log and the gyro sample rate is too low for the 20~80Hz estimator band — enter the head speed manually";
+        default:
+            return "Entering the head speed RPM also updates the harmonic marker frequencies";
+    }
+});
 
 const mainRpm = computed(() => appStore.fftHeadSpeedRpm ?? 0);
 const main1P = computed(() => (mainRpm.value > 0 ? mainRpm.value / 60 : 0));
@@ -250,12 +286,71 @@ function recalculate() {
         }
     }
 
+    // Frame time base (seconds) — needed by the RPM estimator for resampling
+    const timeIdx = log.getMainFieldIndexByName("time") ?? 1; // 1 = FLIGHT_LOG_FIELD_INDEX_TIME
+    const frameTimeSec = new Float32Array(frameCount);
+    n = 0;
+    for (const chunk of chunks) {
+        for (const frame of chunk.frames) {
+            frameTimeSec[n++] = frame[timeIdx] / 1e6;
+        }
+    }
+
     try {
         fftResult.value = computeGyroFft(roll, pitch, yaw, blackboxRate, 1024);
         analysisNotice.value = null;
     } catch (e) {
         fftResult.value = null;
         analysisNotice.value = `FFT analysis failed: ${e?.message ?? e}`;
+        return;
+    }
+
+    resolveHeadSpeed(log, roll, pitch, frameTimeSec, blackboxRate, startUs, endUs);
+}
+
+/**
+ * Head-speed resolution: the log's own RPM record (headspeed / eRPM) wins; without
+ * one the gyro-STFT estimator (vibanalyse rpmEstimator) runs. A manual value set by
+ * the user is never overwritten — rpmSource stays "manual" in that case.
+ */
+function resolveHeadSpeed(log, roll, pitch, frameTimeSec, blackboxRate, startUs, endUs) {
+    if (rpmSource.value === "manual") {
+        return;
+    }
+
+    // 1) Log RPM record (headspeed / eRPM[0])
+    const logRpm = logHeadSpeedOverSelection(log, startUs, endUs);
+    if (Number.isFinite(logRpm) && logRpm > 0) {
+        appStore.fftHeadSpeedRpm = Math.round(logRpm);
+        headSpeedInput.value = String(Math.round(logRpm));
+        rpmSource.value = "log";
+        return;
+    }
+
+    // 2) Gyro STFT estimate — for logs without an RPM sensor
+    rpmBusy.value = true;
+    try {
+        const estimated = estimateRpmFromGyro(roll, pitch, frameTimeSec, blackboxRate);
+        let sum = 0;
+        let count = 0;
+        for (const v of estimated) {
+            if (Number.isFinite(v) && v > 0) {
+                sum += v;
+                count++;
+            }
+        }
+        if (count > 0) {
+            const rpm = Math.round(sum / count);
+            appStore.fftHeadSpeedRpm = rpm;
+            headSpeedInput.value = String(rpm);
+            rpmSource.value = "estimate";
+        } else {
+            // Nothing worked (e.g. a 50Hz log whose Nyquist is below the 20~80Hz
+            // estimator band) — keep the current value and say where it stands.
+            rpmSource.value = "unavailable";
+        }
+    } finally {
+        rpmBusy.value = false;
     }
 }
 
@@ -928,6 +1023,36 @@ watch(
 .fft-input {
     width: 56px;
     text-align: right;
+}
+
+/* Head-speed origin badge: LOG = read from the log's eRPM record, EST = gyro estimator */
+.fft-badge {
+    font-family: var(--font-mono, monospace);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    letter-spacing: 0.04em;
+}
+
+.badge-log {
+    color: #059669;
+    background: rgba(16, 185, 129, 0.14);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.badge-est {
+    color: #0284c7;
+    background: rgba(56, 189, 248, 0.14);
+    border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+/* No RPM record + sample rate too low for the estimator */
+.badge-na {
+    color: var(--text-secondary, #888);
+    background: color-mix(in srgb, var(--text-secondary, #888) 12%, transparent);
+    border: 1px solid var(--border-color, #ccc);
 }
 
 .fft-canvas-wrap {
