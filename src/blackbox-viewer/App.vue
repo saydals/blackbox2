@@ -367,10 +367,11 @@ function onGotoBookmark(index) {
 }
 
 // FFT Vibration toggle: opening it auto-selects the analysis window —
-// the middle section of the log (30s trimmed from both take-off and landing
-// ends) because those produce abnormally large noise. Logs shorter than one
-// minute use the full timeline. The 3D page and the FFT page are mutually
-// exclusive (both replace the graph area).
+// the middle section of the log (30s trimmed from both take-off and
+// landing ends) because those produce abnormally large noise. Logs
+// shorter than one minute use the full timeline.
+// The 3D page and the FFT page share the same graph-area slot, so
+// they are mutually exclusive — opening one closes the other.
 watch(appStore.fftOpen, (open) => {
     if (!open) {
         return;
@@ -399,6 +400,16 @@ watch(appStore.fftOpen, (open) => {
 
     setVideoInTime(startSec);
     setVideoOutTime(endSec);
+});
+
+// Opening the 3D page closes the FFT panel (same slot).
+watch(appStore.blackbox3DOpen, (open) => {
+    if (!open) {
+        return;
+    }
+    if (appStore.fftOpen) {
+        appStore.fftOpen = false;
+    }
 });
 
 // Drag-and-drop file loading (window-level)
