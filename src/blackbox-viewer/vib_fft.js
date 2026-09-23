@@ -7,9 +7,6 @@
  * samples are extracted from the flight log the viewer already has open.
  */
 
-/** Windows shorter than this cannot be analyzed reliably (vibanalyse parity). */
-export const MIN_ANALYSIS_SEC = 30;
-
 /** Fast in-place radix-2 FFT */
 export function complexFft(real, imag) {
     const n = real.length;

@@ -127,7 +127,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { useLogStore } from "../stores/log.js";
 import { usePlaybackStore } from "../stores/playback.js";
 import { useAppStore } from "../stores/app.js";
-import { computeGyroFft, MIN_ANALYSIS_SEC } from "../vib_fft.js";
+import { computeGyroFft } from "../vib_fft.js";
 import { estimateRpmFromGyro, logHeadSpeedOverSelection } from "../vib_rpm.js";
 
 const logStore = useLogStore();
@@ -230,13 +230,6 @@ function recalculate() {
     }
 
     const { start, end } = selectionSeconds();
-    const duration = end - start;
-
-    if (duration < MIN_ANALYSIS_SEC) {
-        fftResult.value = null;
-        analysisNotice.value = `Selected window is ${duration.toFixed(1)}s — shorter than the ${MIN_ANALYSIS_SEC}s minimum, so it is not analyzed.`;
-        return;
-    }
 
     // Field lookup — gyroADC[n] is the filtered gyro the graph panel plots
     const gyroIdx = [0, 1, 2].map((i) => log.getMainFieldIndexByName(`gyroADC[${i}]`));
