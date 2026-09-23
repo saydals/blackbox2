@@ -302,17 +302,22 @@ function recalculate() {
 }
 
 /**
- * Head-speed resolution: the log's own RPM record (headspeed / eRPM) wins; without
- * one the gyro-STFT estimator (vibanalyse rpmEstimator) runs. A manual value set by
- * the user is never overwritten — rpmSource stays "manual" in that case.
+ * Head-speed resolution: the log's own RPM record (headspeed / eRPM)
+ * wins — read from the narrow window around the current playback
+ * position (the red timeline bar) so it reflects where the user is
+ * looking. Without a log RPM record the gyro-STFT estimator
+ * (vibanalyse rpmEstimator) runs over the selected analysis window.
+ * A manual value set by the user is never overwritten.
  */
-function resolveHeadSpeed(log, roll, pitch, frameTimeSec, blackboxRate, startUs, endUs) {
+function resolveHeadSpeed(log, roll, pitch, frameTimeSec, blackboxRate, _startUs, _endUs) {
     if (rpmSource.value === "manual") {
         return;
     }
 
-    // 1) Log RPM record (headspeed / eRPM[0])
-    const logRpm = logHeadSpeedOverSelection(log, startUs, endUs);
+    // 1) Log RPM record (headspeed / eRPM[0]) at the red timeline
+    // bar position (±1 s window so the nearest recorded value wins).
+    const nowUs = logStore.currentBlackboxTime;
+    const logRpm = logHeadSpeedOverSelection(log, nowUs - 1e6, nowUs + 1e6);
     if (Number.isFinite(logRpm) && logRpm > 0) {
         appStore.fftHeadSpeedRpm = Math.round(logRpm);
         headSpeedInput.value = String(Math.round(logRpm));

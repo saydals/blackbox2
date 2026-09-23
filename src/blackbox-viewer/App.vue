@@ -367,9 +367,9 @@ function onGotoBookmark(index) {
 }
 
 // FFT Vibration toggle: opening it auto-selects the analysis window —
-// the middle section of the log (30s trimmed from both take-off and
+// the middle section of the log (20 s trimmed from both take-off and
 // landing ends) because those produce abnormally large noise. Logs
-// shorter than one minute use the full timeline.
+// 1 minute or shorter use the full timeline.
 // The 3D page and the FFT page share the same graph-area slot, so
 // they are mutually exclusive — opening one closes the other.
 watch(appStore.fftOpen, (open) => {
@@ -389,7 +389,7 @@ watch(appStore.fftOpen, (open) => {
     const minSec = log.getMinTime() / 1e6;
     const maxSec = log.getMaxTime() / 1e6;
     const duration = maxSec - minSec;
-    const TRIM_SEC = 30;
+    const TRIM_SEC = 20;
 
     let startSec = minSec;
     let endSec = maxSec;
