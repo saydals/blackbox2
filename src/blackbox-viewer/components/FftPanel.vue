@@ -98,7 +98,7 @@
 
         <!-- Main Canvas Area -->
         <div ref="containerRef" class="fft-canvas-wrap">
-            <canvas ref="canvasRef" class="fft-canvas" @pointermove="onPointerMove" @pointerleave="onPointerLeave" />
+            <canvas ref="canvasRef" class="fft-canvas" :class="{ 'has-grab-target': !dragging && hasGrabTarget }" :style="{ cursor: dragging ? 'grabbing' : (hasGrabTarget ? 'grab' : 'crosshair') }" @pointermove="onPointerMove" @pointerleave="onPointerLeave" @pointerdown="onPointerDown" @pointerup="onPointerUp" />
 
             <!-- Analysis unavailable notice (e.g. selected window < 30s) -->
             <div v-if="analysisNotice" class="fft-notice">
@@ -213,7 +213,7 @@ const rpmSourceTip = computed(() => {
         case "unavailable":
             return "No RPM record in this log and the gyro sample rate is too low for the 20~80Hz estimator band — enter the head speed manually";
         default:
-            return "Entering the head speed RPM also updates the harmonic marker frequencies";
+            return "Entering the head speed RPM also updates the harmonic marker frequencies — drag the marker pills on the canvas to calibrate";
     }
 });
 
@@ -223,6 +223,20 @@ const main2P = computed(() => main1P.value * 2);
 const tail1P = computed(() => main1P.value * 4.45); // vibanalyse default tailGearRatio
 const motor1P = computed(() => main1P.value * 10.0);
 const bladeCount = 2;
+
+// Harmonic marker definitions shared by rendering, hit-testing, and dragging
+const HARMONIC_MARKERS = [
+    { key: "1P", label: "1P Main", color: "#38bdf8", bg: "#0369a1", ratio: 1 },
+    { key: "2P", label: `${bladeCount}P Blade`, color: "#a855f7", bg: "#7e22ce", ratio: 2 },
+    { key: "Tail", label: "Tail 1P", color: "#f59e0b", bg: "#b45309", ratio: 4.45 },
+    { key: "Motor", label: "Motor", color: "#ec4899", bg: "#be185d", ratio: 10 },
+];
+
+// Drag state
+const dragMarker = ref(null);
+const dragging = ref(false);
+const harmonicPillRects = ref([]);
+const hasGrabTarget = ref(false);
 
 // ---- Gyro data source: Filtered (gyroADC, after filters) vs Raw (gyroRAW, before filters) ----
 // Effective source — falls back to whichever is available when the chosen one is missing.
@@ -398,6 +412,38 @@ function resolveHeadSpeed(log, roll, pitch, frameTimeSec, blackboxRate, _startUs
 
 // ---- Peak detection (vibanalyse: harmonic-anchored, up to 9 markers) ----
 
+const peakNearScored = (data, center, tol, limitIdx, fft) => {
+    let best = null;
+    for (let i = 2; i < limitIdx - 1; i++) {
+        const f = fft.frequencies[i];
+        if (f < Math.max(skipHz.value, 15) || f > maxFreqRange.value) continue;
+        if (Math.abs(f - center) > tol) continue;
+        const val = data[i];
+        if (val > data[i - 1] && val > data[i + 1]) {
+            let partnerScore = 0;
+            const partnerCenter = 2 * f;
+            for (let j = 2; j < limitIdx; j++) {
+                if (Math.abs(fft.frequencies[j] - partnerCenter) < 2.5) {
+                    partnerScore = Math.max(partnerScore, data[j]);
+                }
+            }
+            const score = val + 0.35 * partnerScore;
+            if (!best || score > best.score) best = { freq: f, amp: val, score };
+        }
+    }
+    if (!best) {
+        for (let i = 2; i < limitIdx; i++) {
+            const f = fft.frequencies[i];
+            if (f < Math.max(skipHz.value, 15) || f > maxFreqRange.value) continue;
+            if (Math.abs(f - center) > tol) continue;
+            const val = data[i];
+            if (!best || val > best.amp) best = { freq: f, amp: val, score: val };
+        }
+    }
+    if (!best || best.amp < 0.04) return null;
+    return best;
+};
+
 const detectedPeaks = computed(() => {
     const list = [];
     const fft = fftResult.value;
@@ -416,63 +462,12 @@ const detectedPeaks = computed(() => {
 
     const targets = [];
     if (main1P.value > 0) {
-        targets.push({ freq: main1P.value, tol: 4.5 });
-        targets.push({ freq: main2P.value, tol: 7.0 });
-        targets.push({ freq: tail1P.value, tol: 14.0 });
+        const scored1P = peakNearScored(channels[0].data, main1P.value, 4.5, limitIdx, fft);
+        const f1P = scored1P ? scored1P.freq : main1P.value;
+        targets.push({ freq: f1P, tol: 4.5 });
+        targets.push({ freq: f1P * 2, tol: 4 });
+        targets.push({ freq: f1P * 4.45, tol: 14.0 });
     }
-
-    const peakNear = (data, center, tol) => {
-        let best = null;
-        for (let i = 2; i < limitIdx - 1; i++) {
-            const f = fft.frequencies[i];
-            if (f < Math.max(skipHz.value, 15) || f > maxFreqRange.value) continue;
-            if (Math.abs(f - center) > tol) continue;
-            const val = data[i];
-            if (val > data[i - 1] && val > data[i + 1]) {
-                if (!best || val > best.amp) best = { freq: f, amp: val };
-            }
-        }
-        if (!best) {
-            for (let i = 2; i < limitIdx; i++) {
-                const f = fft.frequencies[i];
-                if (f < Math.max(skipHz.value, 15) || f > maxFreqRange.value) continue;
-                if (Math.abs(f - center) > tol) continue;
-                const val = data[i];
-                if (!best || val > best.amp) best = { freq: f, amp: val };
-            }
-        }
-        if (!best || best.amp < 0.04) return null;
-        return best;
-    };
-
-    channels.forEach((ch) => {
-        if (!ch.active) return;
-        targets.forEach((target) => {
-            if (target.freq < Math.max(skipHz.value, 15) || target.freq > maxFreqRange.value) return;
-            const found = peakNear(ch.data, target.freq, target.tol);
-            if (!found) return;
-            list.push({
-                axis: ch.name,
-                freq: Math.round(found.freq * 10) / 10,
-                amp: Math.round(found.amp * 100) / 100,
-                color: ch.color,
-                bg: ch.bg,
-            });
-        });
-    });
-
-    // De-duplicate: same axis + nearly same frequency (keep strongest)
-    const deduped = [];
-    list
-        .sort((a, b) => b.amp - a.amp)
-        .forEach((p) => {
-            if (!deduped.some((q) => q.axis === p.axis && Math.abs(q.freq - p.freq) < 8)) {
-                deduped.push(p);
-            }
-        });
-
-    return deduped.slice(0, 9);
-});
 
 const globalMaxPeak = computed(() => detectedPeaks.value[0] || null);
 
@@ -664,14 +659,15 @@ function render() {
 
         // Harmonics Vertical Markers
         if (main1P.value > 0) {
+            harmonicPillRects.value = [];
             const markers = [
-                { freq: main1P.value, label: "1P Main", color: "#38bdf8", bg: "#0369a1" },
-                { freq: main2P.value, label: `${bladeCount}P Blade`, color: "#a855f7", bg: "#7e22ce" },
-                { freq: tail1P.value, label: "Tail 1P", color: "#f59e0b", bg: "#b45309" },
-                { freq: motor1P.value, label: "Motor", color: "#ec4899", bg: "#be185d" },
+                { freq: main1P.value, label: `1P Main · ${Math.round(mainRpm.value)} rpm`, color: "#38bdf8", bg: "#0369a1", ratio: 1 },
+                { freq: main2P.value, label: `${bladeCount}P Blade`, color: "#a855f7", bg: "#7e22ce", ratio: 2 },
+                { freq: tail1P.value, label: "Tail 1P", color: "#f59e0b", bg: "#b45309", ratio: 4.45 },
+                { freq: motor1P.value, label: "Motor", color: "#ec4899", bg: "#be185d", ratio: 10 },
             ];
 
-            markers.forEach(({ freq, label, color, bg }) => {
+            markers.forEach(({ freq, label, color, bg, ratio }) => {
                 if (freq >= skipHz.value && freq <= maxFreqRange.value) {
                     const x = freqToX(freq);
 
@@ -686,17 +682,22 @@ function render() {
                     ctx.stroke();
                     ctx.restore();
 
-                    // Label pill at top
+                    // Label pill at top — set font BEFORE measureText
                     ctx.fillStyle = bg;
+                    ctx.font = "bold 10px sans-serif";
                     const txtW = ctx.measureText(label).width + 10;
+                    const pillX = x - txtW / 2;
+                    const pillY = padTop - 24;
+                    const pillH = 16;
                     ctx.beginPath();
-                    ctx.roundRect(x - txtW / 2, padTop - 24, txtW, 16, 4);
+                    ctx.roundRect(pillX, pillY, txtW, pillH, 4);
                     ctx.fill();
 
                     ctx.fillStyle = "#ffffff";
                     ctx.textAlign = "center";
-                    ctx.font = "bold 10px sans-serif";
                     ctx.fillText(label, x, padTop - 12);
+
+                    harmonicPillRects.value.push({ marker: ratio === 1 ? "1P" : ratio === 2 ? "2P" : ratio === 4.45 ? "Tail" : "Motor", x: pillX, y: pillY, w: txtW, h: pillH });
                 }
             });
         }
@@ -885,6 +886,116 @@ function onPointerMove(e) {
 
 function onPointerLeave() {
     hoverInfo.value = null;
+    hasGrabTarget.value = false;
+}
+
+function markerAt(x, y) {
+    for (const rect of harmonicPillRects.value) {
+        if (Math.abs(x - (rect.x + rect.w / 2)) < 5 && Math.abs(y - (rect.y + rect.h / 2)) < 5) {
+            return rect.marker;
+        }
+        if (x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h) {
+            return rect.marker;
+        }
+    }
+    return null;
+}
+
+function onPointerDown(e) {
+    const canvas = canvasRef.value;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const marker = markerAt(x, y);
+    if (!marker) return;
+    dragMarker.value = marker;
+    dragging.value = true;
+    hoverInfo.value = null;
+    hasGrabTarget.value = false;
+    canvas.setPointerCapture(e.pointerId);
+}
+
+function onPointerUp(e) {
+    const canvas = canvasRef.value;
+    if (!canvas) return;
+    if (dragging.value) {
+        dragging.value = false;
+        dragMarker.value = null;
+        hasGrabTarget.value = false;
+        canvas.releasePointerCapture(e.pointerId);
+    }
+}
+
+function dragMarkerTo(x) {
+    const canvas = canvasRef.value;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const padLeft = 52;
+    const padRight = 30;
+    const plotW = rect.width - padLeft - padRight;
+    const freqFrac = (x - padLeft) / plotW;
+    const targetFreq = skipHz.value + freqFrac * (maxFreqRange.value - skipHz.value);
+    const marker = dragMarker.value;
+    if (!marker) return;
+    const ratio = HARMONIC_MARKERS.find((m) => m.key === marker)?.ratio ?? 1;
+    const rpm = Math.round(targetFreq * 60 / ratio);
+    headSpeedInput.value = String(Math.max(0, Math.min(10000, rpm)));
+    appStore.fftHeadSpeedRpm = Math.max(0, Math.min(10000, rpm));
+    rpmSource.value = "manual";
+}
+
+function onPointerMove(e) {
+    const canvas = canvasRef.value;
+    const fft = fftResult.value;
+    if (!canvas || !fft) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (dragging.value && dragMarker.value) {
+        dragMarkerTo(x);
+        return;
+    }
+
+    const padLeft = 52;
+    const padRight = 30;
+    const plotW = rect.width - padLeft - padRight;
+
+    if (x < padLeft || x > padLeft + plotW) {
+        hoverInfo.value = null;
+        hasGrabTarget.value = false;
+        return;
+    }
+
+    const freqFrac = (x - padLeft) / plotW;
+    const targetFreq = skipHz.value + freqFrac * (maxFreqRange.value - skipHz.value);
+
+    const freqStep = fft.sampleRate / (fft.frequencies.length * 2);
+    const binIdx = Math.max(0, Math.min(fft.frequencies.length - 1, Math.round(targetFreq / freqStep)));
+
+    const actualFreq = fft.frequencies[binIdx];
+
+    // Check nearest harmonic
+    let nearestHarmonic;
+    if (Math.abs(actualFreq - main1P.value) < 3) nearestHarmonic = "Main 1P (imbalance)";
+    else if (Math.abs(actualFreq - main2P.value) < 4) nearestHarmonic = "Main 2P (blade passage)";
+    else if (Math.abs(actualFreq - tail1P.value) < 6) nearestHarmonic = "Tail 1P (tail vibration)";
+    else if (motor1P.value > 0 && Math.abs(actualFreq - motor1P.value) < 10) nearestHarmonic = "Motor rotational frequency";
+
+    hoverInfo.value = {
+        xPx: x,
+        freq: Math.round(actualFreq * 10) / 10,
+        rollVal: Math.round(fft.roll[binIdx] * 100) / 100,
+        pitchVal: Math.round(fft.pitch[binIdx] * 100) / 100,
+        yawVal: Math.round(fft.yaw[binIdx] * 100) / 100,
+        nearestHarmonic,
+    };
+
+    // Check if pointer is over a harmonic marker for grab cursor
+    const marker = markerAt(x, y);
+    hasGrabTarget.value = !!marker;
 }
 
 // ---- Resize observation (exact graph-area fit) & lifecycle ----
@@ -919,6 +1030,7 @@ watch(
         detectedPeaks,
         () => appStore.darkThemeEnabled,
         () => appStore.fftHeadSpeedRpm,
+        dragging,
     ],
     () => render(),
 );
@@ -1122,6 +1234,14 @@ watch(
     overflow: hidden;
     border: 1px solid var(--border-color, #e5e5e5);
     cursor: crosshair;
+}
+
+.fft-canvas-wrap.dragging {
+    cursor: grabbing;
+}
+
+.fft-canvas-wrap.has-grab-target {
+    cursor: grab;
 }
 
 .fft-canvas {
