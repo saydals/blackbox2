@@ -366,25 +366,16 @@ function onGotoBookmark(index) {
     workspaceStore.gotoBookmark?.(index + 1);
 }
 
-// FFT Vibration toggle: opening it auto-selects the analysis window —
-// the middle 3/5 of the timeline: the first 1/5 (take-off) and the last
-// 1/5 (landing) are excluded because those produce abnormally large noise.
+// Analysis window selection: the middle 3/5 of the timeline — the first 1/5
+// (take-off) and the last 1/5 (landing) are excluded because those produce
+// abnormally large noise.
 // NOTE: the in/out marks are stored in MICROSECONDS everywhere else
 // (keyboard I/O marks, PlaybackControls "select all", the bbl/video
 // exporters and FftPanel.selectionSeconds all use log-time µs) — the
 // previous code wrote seconds here, so the marks landed at the far left
 // edge of the timeline and the FFT window came out effectively empty.
-// The 3D page and the FFT page share the same graph-area slot, so
-// they are mutually exclusive — opening one closes the other.
-watch(() => appStore.fftOpen, (open) => {
-    if (!open) {
-        return;
-    }
 
-    if (appStore.blackbox3DOpen) {
-        appStore.blackbox3DOpen = false;
-    }
-
+function selectFftAnalysisWindow() {
     const log = logStore.flightLog;
     if (!log) {
         return;
@@ -397,7 +388,40 @@ watch(() => appStore.fftOpen, (open) => {
     // Middle 3/5 — skip the first 1/5 and the last 1/5 of the timeline
     setVideoInTime(minUs + durationUs / 5);
     setVideoOutTime(maxUs - durationUs / 5);
+}
+
+// FFT Vibration toggle: opening it auto-selects the analysis window.
+// The 3D page and the FFT page share the same graph-area slot, so
+// they are mutually exclusive — opening one closes the other.
+watch(() => appStore.fftOpen, (open) => {
+    if (!open) {
+        return;
+    }
+
+    if (appStore.blackbox3DOpen) {
+        appStore.blackbox3DOpen = false;
+    }
+
+    selectFftAnalysisWindow();
 });
+
+// A log opened while the FFT page is ALREADY open must re-center the
+// analysis window. loadLogFile -> selectLog resets the in/out marks
+// (setVideoInTime(false) / setVideoOutTime(false)) and swaps the FlightLog
+// instance, but fftOpen never flips, so the watcher above cannot run again —
+// FftPanel then recalculated over the full log instead of the middle 3/5.
+// This watcher lives in the PARENT on purpose: App.vue's watchers flush
+// before FftPanel's (created later at child mount), so by the time the
+// panel's recalculate watcher runs, the marks already hold the fresh
+// middle-3/5 values rather than the reset ones.
+watch(
+    () => [logStore.flightLog, logStore.activeLogIndex],
+    () => {
+        if (appStore.fftOpen) {
+            selectFftAnalysisWindow();
+        }
+    },
+);
 
 // Opening the 3D page closes the FFT panel (same slot).
 watch(() => appStore.blackbox3DOpen, (open) => {

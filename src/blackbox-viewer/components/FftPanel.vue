@@ -466,10 +466,35 @@ const detectedPeaks = computed(() => {
         const f1P = scored1P ? scored1P.freq : main1P.value;
         targets.push({ freq: f1P, tol: 4.5 });
         targets.push({ freq: f1P * 2, tol: 4 });
-        targets.push({ freq: f1P * 4.45, tol: 14.0 });
-    }
+     // Scan every active channel for peaks near each harmonic target
+    channels.forEach((ch) => {
+        if (!ch.active) return;
+        targets.forEach((target) => {
+            if (target.freq < Math.max(skipHz.value, 15) || target.freq > maxFreqRange.value) return;
+            const found = peakNearScored(ch.data, target.freq, target.tol, limitIdx, fft);
+            if (!found) return;
+            list.push({
+                axis: ch.name,
+                freq: Math.round(found.freq * 10) / 10,
+                amp: Math.round(found.amp * 100) / 100,
+                color: ch.color,
+                bg: ch.bg,
+            });
+        });
+    });
 
-const globalMaxPeak = computed(() => detectedPeaks.value[0] || null);
+    // De-duplicate: same axis + nearly same frequency (keep strongest)
+    const deduped = [];
+    list
+        .sort((a, b) => b.amp - a.amp)
+        .forEach((p) => {
+            if (!deduped.some((q) => q.axis === p.axis && Math.abs(q.freq - p.freq) < 8)) {
+                deduped.push(p);
+            }
+        });
+
+    return deduped.slice(0, 9);
+});
 
 // Max observed amplitude across the visible frequency band (Y-axis autoscale input)
 const maxObservedAmp = computed(() => {
@@ -842,47 +867,10 @@ function drawPeakMarkers(ctx, geo) {
 
 // ---- Pointer handling ----
 
-function onPointerMove(e) {
-    const canvas = canvasRef.value;
-    const fft = fftResult.value;
-    if (!canvas || !fft) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-
-    const padLeft = 52;
-    const padRight = 30;
-    const plotW = rect.width - padLeft - padRight;
-
-    if (x < padLeft || x > padLeft + plotW) {
-        hoverInfo.value = null;
-        return;
-    }
-
-    const freqFrac = (x - padLeft) / plotW;
-    const targetFreq = skipHz.value + freqFrac * (maxFreqRange.value - skipHz.value);
-
-    const freqStep = fft.sampleRate / (fft.frequencies.length * 2);
-    const binIdx = Math.max(0, Math.min(fft.frequencies.length - 1, Math.round(targetFreq / freqStep)));
-
-    const actualFreq = fft.frequencies[binIdx];
-
-    // Check nearest harmonic
-    let nearestHarmonic;
-    if (Math.abs(actualFreq - main1P.value) < 3) nearestHarmonic = "Main 1P (imbalance)";
-    else if (Math.abs(actualFreq - main2P.value) < 4) nearestHarmonic = "Main 2P (blade passage)";
-    else if (Math.abs(actualFreq - tail1P.value) < 6) nearestHarmonic = "Tail 1P (tail vibration)";
-    else if (motor1P.value > 0 && Math.abs(actualFreq - motor1P.value) < 10) nearestHarmonic = "Motor rotational frequency";
-
-    hoverInfo.value = {
-        xPx: x,
-        freq: Math.round(actualFreq * 10) / 10,
-        rollVal: Math.round(fft.roll[binIdx] * 100) / 100,
-        pitchVal: Math.round(fft.pitch[binIdx] * 100) / 100,
-        yawVal: Math.round(fft.yaw[binIdx] * 100) / 100,
-        nearestHarmonic,
-    };
-}
+// NOTE: only ONE onPointerMove exists — the drag-aware version below the
+// dragMarkerTo() definition (hover tooltip + marker grab + dragging).
+// The fix3 commit accidentally left the pre-fix3 hover-only duplicate in
+// place, which made the component fail to compile (duplicate identifier).
 
 function onPointerLeave() {
     hoverInfo.value = null;
@@ -1036,11 +1024,16 @@ watch(
 );
 
 // Recalculate when the analyzed window (in/out marks), the log or the gyro
-// source toggle (RAW <-> Filtered) changes while open
-    watch(
-        () => [logStore.flightLog, playbackStore.videoExportInTime, playbackStore.videoExportOutTime, activeGyroSource.value],
-        () => recalculate(),
-    );
+// source toggle (RAW <-> Filtered) changes while open.
+// `immediate` is REQUIRED: the panel is v-if-mounted AFTER App.vue's fftOpen
+// watcher has already written the in/out marks, so without it no dependency
+// ever changes after mount — the first FFT computation only ran when the
+// user pressed the RAW/Filtered toggle, leaving the chart blank on entry.
+watch(
+    () => [logStore.flightLog, playbackStore.videoExportInTime, playbackStore.videoExportOutTime, activeGyroSource.value],
+    () => recalculate(),
+    { immediate: true },
+);
 </script>
 
 <style scoped>
