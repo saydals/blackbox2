@@ -1028,6 +1028,10 @@ watch(
     width: 76px;
     flex-shrink: 0;
     text-align: center;
+    min-height: 52px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .dot {
