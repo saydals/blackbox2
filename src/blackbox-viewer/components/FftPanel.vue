@@ -5,7 +5,7 @@
             <div class="fft-title">
                 <span class="fft-title-icon"><UIcon name="i-lucide-activity" class="size-4" /></span>
                 <span class="fft-title-text">FFT Vibration Frequency Spectrum</span>
-                <span class="fft-title-field">{{ gyroSourceLabel.value === 'raw' ? 'gyroRAW' : 'gyroADC' }}</span>
+                <span class="fft-title-field">{{ activeGyroSource.value === 'raw' ? 'gyroRAW' : 'gyroADC' }}</span>
             </div>
 
             <div class="fft-controls">
@@ -1025,7 +1025,8 @@ watch(
 /* Raw / Filtered gyro source button — fixed width so the layout
    does not shift when the label changes between Raw and Filtered */
 .fft-gyro-btn {
-    width: 76px;
+    min-width: 88px;
+    width: 88px;
     flex-shrink: 0;
     text-align: center;
     padding: 3px 8px;
