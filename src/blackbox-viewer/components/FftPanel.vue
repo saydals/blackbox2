@@ -23,21 +23,19 @@
                 </div>
 
                 <!-- Data source toggle: Raw / Filtered gyro — left of the Mark button -->
-                <div class="toolbar-panel">
-                    <button
-                        class="fft-chip fft-gyro-btn"
-                        :class="{ 'is-on': activeGyroSource === 'raw' }"
-                        :title="
-                            (activeGyroSource === 'raw'
-                                ? 'Analysis data: Raw Gyro — gyroRAW (before the gyro filters)'
-                                : 'Analysis data: Filtered Gyro — gyroADC (after the gyro filters)') +
-                            gyroSourceWarning.value
-                        "
-                        @click="toggleGyroSource"
-                    >
-                        {{ gyroSourceLabel.value }}
-                    </button>
-                </div>
+                <button
+                    class="fft-chip fft-gyro-btn"
+                    :class="{ 'is-on': activeGyroSource === 'raw' }"
+                    :title="
+                        (activeGyroSource === 'raw'
+                            ? 'Analysis data: Raw Gyro — gyroRAW (before the gyro filters)'
+                            : 'Analysis data: Filtered Gyro — gyroADC (after the gyro filters)') +
+                        gyroSourceWarning.value
+                    "
+                    @click="toggleGyroSource"
+                >
+                    {{ gyroSourceLabel.value }}
+                </button>
 
                 <!-- Peak markers toggle -->
                 <button
@@ -1030,6 +1028,9 @@ watch(
     width: 76px;
     flex-shrink: 0;
     text-align: center;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 500;
 }
 
 .dot {
