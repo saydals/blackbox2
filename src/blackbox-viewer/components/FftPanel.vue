@@ -1002,16 +1002,18 @@ watch(
     gap: 4px;
     padding: 3px 8px;
     border-radius: 6px;
-    border: 1px solid transparent;
+    border: 1px solid var(--border-color, #ccc);
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
     color: var(--text-secondary, #888);
-    background: transparent;
+    background: var(--surface-50, #f5f5f5);
+    transition: background 0.15s, color 0.15s;
 }
 
 .fft-chip:hover {
     color: var(--text-primary, #333);
+    background: var(--surface-100, #eee);
 }
 
 .fft-chip.is-on {
