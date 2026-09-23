@@ -24,7 +24,7 @@
 
                 <!-- Data source toggle: Raw / Filtered gyro — left of the Mark button -->
                 <button
-                    class="fft-chip"
+                    class="fft-chip fft-gyro-btn"
                     :class="{ 'is-on': activeGyroSource === 'raw' }"
                     :title="
                         (activeGyroSource === 'raw'
@@ -225,8 +225,8 @@ const motor1P = computed(() => main1P.value * 10.0);
 const bladeCount = 2;
 
 // ---- Gyro data source: Filtered (gyroADC, after filters) vs Raw (gyroRAW, before filters) ----
-// The user can toggle between them; if the chosen one is not logged we fall back automatically.
-const gyroSource = ref<'filtered' | 'raw'>('filtered');
+// Effective source — falls back to whichever is available when the chosen one is missing.
+const gyroSource = ref<'filtered' | 'raw'>('raw');
 const gyroSourceAvailable = computed(() => {
     const log = logStore.flightLog;
     if (!log) return { filtered: false, raw: false };
@@ -1020,6 +1020,14 @@ watch(
     border-color: var(--border-color, #ccc);
     background: var(--surface-100, #f5f5f5);
     color: var(--text-primary, #222);
+}
+
+/* Raw / Filtered gyro source button — fixed width so the layout
+   does not shift when the label changes between Raw and Filtered */
+.fft-gyro-btn {
+    width: 76px;
+    flex-shrink: 0;
+    text-align: center;
 }
 
 .dot {
