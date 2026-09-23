@@ -778,6 +778,17 @@
     overflow: hidden;
 }
 
+/*
+ * FFT VIBRATION panel — occupies exactly the #log-graph flex slot while open,
+ * same sizing mechanism as .blackbox-3d-overlay (flex: 1 1 0 + stretch).
+ */
+.blackbox-fft-overlay {
+    flex: 1 1 0;
+    min-width: 0;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
 .video-top-controls,
 .log-graph {
     display: none;

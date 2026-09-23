@@ -11,6 +11,13 @@ export const useAppStore = defineStore("app", () => {
     // already-open viewer log with its own controls.
     const blackbox3DOpen = ref(false);
 
+    // FFT VIBRATION overlay — replaces the graph area (same slot as the 3D
+    // page) while open, showing the FFT Vibration Frequency Spectrum of the
+    // currently selected in/out window. Head speed (RPM) feeds the harmonic
+    // markers; persisted only for the session.
+    const fftOpen = ref(false);
+    const fftHeadSpeedRpm = ref(2300);
+
     // True while the viewer is the visible tab. Embedded, the host tab flips this on
     // activate/deactivate so the viewer's document-level handlers (keyboard, wheel, drag) go
     // dormant behind other tabs. Defaults true so the standalone viewer is unaffected.
@@ -62,6 +69,8 @@ export const useAppStore = defineStore("app", () => {
         viewVideo,
         darkThemeEnabled,
         blackbox3DOpen,
+        fftOpen,
+        fftHeadSpeedRpm,
         viewerActive,
         logFilename,
         statusVersion,

@@ -49,6 +49,7 @@
                         <LogPanel />
                         </div>
                         <Blackbox3DButton v-model="appStore.blackbox3DOpen" />
+                        <FftButton v-model="appStore.fftOpen" />
                         <div class="toolbar-panel toolbar-panel--menu-wrap">
                             <AppMenu
                                 @export-bbl="onExportBbl"
@@ -70,7 +71,10 @@
                             class="blackbox-3d-overlay"
                             @close="appStore.blackbox3DOpen = false"
                         />
-                        <div v-show="!appStore.blackbox3DOpen" id="log-graph" class="log-graph">
+                        <!-- FFT VIBRATION replaces the graph area exactly like the
+                            3D page (flex: 1 1 0 slot) while open. -->
+                        <FftPanel v-if="appStore.fftOpen" class="blackbox-fft-overlay" />
+                        <div v-show="!appStore.blackbox3DOpen && !appStore.fftOpen" id="log-graph" class="log-graph">
                             <!--
                                 Graph-only fullscreen toggle. Sits in the top-left corner of the
                                 graph canvas, immediately to the left of the filename overlay.
@@ -142,8 +146,9 @@
 </template>
 
 <script setup>
-import { computed, ref, watchEffect, onMounted, onUnmounted } from "vue";
+import { computed, ref, watch, watchEffect, onMounted, onUnmounted } from "vue";
 import { bootstrapViewer } from "./main.js";
+import { setVideoInTime, setVideoOutTime } from "./video_handler.js";
 import { useGraphStore } from "./stores/graph.js";
 import { useAppStore } from "./stores/app.js";
 import { useLogStore, FIRMWARE_CLASSES } from "./stores/log.js";
@@ -164,6 +169,8 @@ import WorkspacePanel from "./components/WorkspacePanel.vue";
 import LogPanel from "./components/LogPanel.vue";
 import Blackbox3DButton from "./components/Blackbox3DButton.vue";
 import Blackbox3DPanel from "./components/Blackbox3DPanel.vue";
+import FftButton from "./components/FftButton.vue";
+import FftPanel from "./components/FftPanel.vue";
 import StatusBar from "./components/StatusBar.vue";
 import KeysDialog from "./components/KeysDialog.vue";
 import UserSettingsDialog from "./components/UserSettingsDialog.vue";
@@ -358,6 +365,41 @@ function onRenameWorkspace(id, title) {
 function onGotoBookmark(index) {
     workspaceStore.gotoBookmark?.(index + 1);
 }
+
+// FFT Vibration toggle: opening it auto-selects the analysis window —
+// the middle section of the log (30s trimmed from both take-off and landing
+// ends) because those produce abnormally large noise. Logs shorter than one
+// minute use the full timeline. The 3D page and the FFT page are mutually
+// exclusive (both replace the graph area).
+watch(appStore.fftOpen, (open) => {
+    if (!open) {
+        return;
+    }
+
+    if (appStore.blackbox3DOpen) {
+        appStore.blackbox3DOpen = false;
+    }
+
+    const log = logStore.flightLog;
+    if (!log) {
+        return;
+    }
+
+    const minSec = log.getMinTime() / 1e6;
+    const maxSec = log.getMaxTime() / 1e6;
+    const duration = maxSec - minSec;
+    const TRIM_SEC = 30;
+
+    let startSec = minSec;
+    let endSec = maxSec;
+    if (duration > 60) {
+        startSec = minSec + TRIM_SEC;
+        endSec = maxSec - TRIM_SEC;
+    }
+
+    setVideoInTime(startSec);
+    setVideoOutTime(endSec);
+});
 
 // Drag-and-drop file loading (window-level)
 function onDragOver(e) {
