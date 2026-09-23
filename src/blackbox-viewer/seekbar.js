@@ -25,6 +25,10 @@ function getCursorStyleWindow() {
     return "rgba(255, 65, 64, 0.15)"; // Red window overlay works in both themes
 }
 
+function getSelectionLineStyle() {
+    return "rgba(30, 120, 255, 0.95)"; // Blue selection boundary lines work in both themes
+}
+
 export function SeekBar(canvas) {
     const that = this;
     //Times:
@@ -55,17 +59,70 @@ export function SeekBar(canvas) {
     let CURSOR_WIDTH = 1;
     // The bar begins a couple of px inset from the left to allow the cursor to hang over the edge at start&end
     let BAR_INSET = CURSOR_WIDTH;
+    // In/out boundary lines: 4x thicker than the original 1px hairline, DPR-scaled
+    let MARK_LINE_WIDTH = 4;
+    // Distance (canvas px) from a boundary line within which a press starts a drag instead of a seek
+    let MARK_GRAB_THRESHOLD = 8;
+    //null while no mark is being dragged, otherwise "in" or "out"
+    let markDragMode = null;
 
     this.onSeek = false;
+    // Called with the new time while the user drags the in/out boundary line (wired to
+    // setVideoInTime/setVideoOutTime in main.js so the store, graph and dialogs stay in sync)
+    this.onSetInTime = false;
+    this.onSetOutTime = false;
 
-    function seekToDOMPixel(x) {
+    function domXToCanvasX(domX) {
         const bounding = canvas.getBoundingClientRect();
-        let time;
 
         // Compensate for canvas being stretched on the page
-        x = (x / (bounding.right - bounding.left)) * canvas.width;
+        return (domX / (bounding.right - bounding.left)) * canvas.width;
+    }
 
-        time = ((x - BAR_INSET) * (max - min)) / (canvas.width - 1 - BAR_INSET * 2) + min;
+    function canvasXToTime(x) {
+        return ((x - BAR_INSET) * (max - min)) / (canvas.width - 1 - BAR_INSET * 2) + min;
+    }
+
+    function timeToCanvasX(time) {
+        const pixelTimeStep = (max - min) / (canvas.width - BAR_INSET * 2);
+
+        return (time - min) / pixelTimeStep + BAR_INSET;
+    }
+
+    //Returns "in"/"out" when a press at the given document X starts a boundary-line drag, else null
+    function markAt(domX) {
+        if (typeof min !== "number" || typeof max !== "number" || !(max > min)) {
+            return null;
+        }
+
+        const x = domXToCanvasX(domX);
+        const inX = inTime !== false ? timeToCanvasX(inTime) : null;
+        const outX = outTime !== false ? timeToCanvasX(outTime) : null;
+        const nearIn = inX !== null && Math.abs(x - inX) <= MARK_GRAB_THRESHOLD;
+        const nearOut = outX !== null && Math.abs(x - outX) <= MARK_GRAB_THRESHOLD;
+
+        if (nearIn && nearOut) {
+            //Both lines under the pointer: grab whichever is closer
+            return Math.abs(x - inX) <= Math.abs(x - outX) ? "in" : "out";
+        }
+
+        if (nearIn) {
+            return "in";
+        }
+
+        if (nearOut) {
+            return "out";
+        }
+
+        return null;
+    }
+
+    function seekToDOMPixel(x) {
+        if (typeof min !== "number" || typeof max !== "number" || !(max > min)) {
+            return;
+        }
+
+        let time = canvasXToTime(domXToCanvasX(x));
 
         if (time < min) {
             time = min;
@@ -103,7 +160,32 @@ export function SeekBar(canvas) {
         e.preventDefault();
 
         if (e.button === 0) {
-            seekToDOMPixel(e.pageX - getCanvasOffsetLeft());
+            const domX = e.pageX - getCanvasOffsetLeft();
+            const grabbed = markAt(domX);
+
+            if (grabbed) {
+                markDragMode = grabbed;
+
+                function onMarkMouseMove(e) {
+                    if (markDragMode && e.button === 0) {
+                        dragMarkToDOMPixel(markDragMode, e.pageX - getCanvasOffsetLeft());
+                    }
+                }
+
+                function onMarkMouseUp() {
+                    markDragMode = null;
+                    document.body.removeEventListener("mousemove", onMarkMouseMove);
+                    document.body.removeEventListener("mouseup", onMarkMouseUp);
+                    cancelMouseDrag = null;
+                }
+                cancelMouseDrag = onMarkMouseUp;
+                document.body.addEventListener("mousemove", onMarkMouseMove);
+                document.body.addEventListener("mouseup", onMarkMouseUp);
+
+                return;
+            }
+
+            seekToDOMPixel(domX);
             document.body.addEventListener("mousemove", onMouseMove);
 
             function onMouseUp() {
@@ -118,6 +200,51 @@ export function SeekBar(canvas) {
 
     canvas.addEventListener("mousedown", onMouseDown);
 
+    function updateHoverCursor(e) {
+        if (markDragMode) {
+            canvas.style.cursor = "ew-resize";
+            return;
+        }
+
+        const domX = e.clientX - canvas.getBoundingClientRect().left;
+        canvas.style.cursor = markAt(domX) ? "ew-resize" : "";
+    }
+
+    canvas.addEventListener("mousemove", updateHoverCursor);
+    canvas.addEventListener("mouseleave", () => {
+        if (!markDragMode) {
+            canvas.style.cursor = "";
+        }
+    });
+
+    function dragMarkToDOMPixel(which, domX) {
+        const time = canvasXToTime(domXToCanvasX(domX));
+        const mark = Number.isFinite(time) ? time : null;
+
+        if (mark === null) {
+            return;
+        }
+
+        // Clamp to the log range, then keep the selection valid (in must stay ≤ out)
+        if (which === "in") {
+            const clamped = Math.min(Math.max(mark, min), outTime !== false ? Math.min(outTime, max) : max);
+
+            if (that.onSetInTime) {
+                that.onSetInTime(clamped);
+            }
+            that.setInTime(clamped);
+        } else {
+            const clamped = Math.min(Math.max(mark, inTime !== false ? Math.max(inTime, min) : min), max);
+
+            if (that.onSetOutTime) {
+                that.onSetOutTime(clamped);
+            }
+            that.setOutTime(clamped);
+        }
+
+        that.repaint();
+    }
+
     function onTouchMove(e) {
         seekToDOMPixel(e.touches[0].pageX - getCanvasOffsetLeft());
     }
@@ -125,7 +252,34 @@ export function SeekBar(canvas) {
     function onTouchStart(e) {
         e.preventDefault();
 
-        seekToDOMPixel(e.touches[0].pageX - getCanvasOffsetLeft());
+        const domX = e.touches[0].pageX - getCanvasOffsetLeft();
+        const grabbed = markAt(domX);
+
+        if (grabbed) {
+            markDragMode = grabbed;
+
+            function onMarkTouchMove(e) {
+                if (markDragMode) {
+                    dragMarkToDOMPixel(markDragMode, e.touches[0].pageX - getCanvasOffsetLeft());
+                }
+            }
+
+            function onMarkTouchEnd() {
+                markDragMode = null;
+                document.body.removeEventListener("touchmove", onMarkTouchMove);
+                document.body.removeEventListener("touchend", onMarkTouchEnd);
+                document.body.removeEventListener("touchcancel", onMarkTouchEnd);
+                cancelTouchDrag = null;
+            }
+            cancelTouchDrag = onMarkTouchEnd;
+            document.body.addEventListener("touchmove", onMarkTouchMove);
+            document.body.addEventListener("touchend", onMarkTouchEnd);
+            document.body.addEventListener("touchcancel", onMarkTouchEnd);
+
+            return;
+        }
+
+        seekToDOMPixel(domX);
         document.body.addEventListener("touchmove", onTouchMove);
 
         function onTouchEnd() {
@@ -144,6 +298,7 @@ export function SeekBar(canvas) {
     this.destroy = function () {
         canvas.removeEventListener("mousedown", onMouseDown);
         canvas.removeEventListener("touchstart", onTouchStart);
+        canvas.removeEventListener("mousemove", updateHoverCursor);
         if (cancelMouseDrag) {
             cancelMouseDrag();
         }
@@ -163,6 +318,8 @@ export function SeekBar(canvas) {
 
         CURSOR_WIDTH = 2.5 * ratio;
         BAR_INSET = CURSOR_WIDTH;
+        MARK_LINE_WIDTH = 4 * ratio;
+        MARK_GRAB_THRESHOLD = 8 * ratio;
 
         invalidateBackground();
 
@@ -306,16 +463,16 @@ export function SeekBar(canvas) {
                 backgroundContext.fillRect(barStartX, 0, barEndX - barStartX, canvas.height);
             }
 
-            // Draw in/out boundary lines in the cached background
+            // Draw in/out boundary lines in the cached background — blue and 4x thicker
             if (inTime !== false) {
                 const inX = (inTime - min) / pixelTimeStep + BAR_INSET;
-                backgroundContext.fillStyle = getCursorStyle();
-                backgroundContext.fillRect(inX - 0.5, 0, 1, canvas.height);
+                backgroundContext.fillStyle = getSelectionLineStyle();
+                backgroundContext.fillRect(inX - MARK_LINE_WIDTH / 2, 0, MARK_LINE_WIDTH, canvas.height);
             }
             if (outTime !== false) {
                 const outX = (outTime - min) / pixelTimeStep + BAR_INSET;
-                backgroundContext.fillStyle = getCursorStyle();
-                backgroundContext.fillRect(outX - 0.5, 0, 1, canvas.height);
+                backgroundContext.fillStyle = getSelectionLineStyle();
+                backgroundContext.fillRect(outX - MARK_LINE_WIDTH / 2, 0, MARK_LINE_WIDTH, canvas.height);
             }
 
             backgroundValid = true;

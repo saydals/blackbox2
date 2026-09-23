@@ -656,6 +656,10 @@ export function bootstrapViewer() {
         });
 
         seekBar.onSeek = setCurrentBlackboxTime;
+        // Dragging the seek bar's in/out boundary lines updates the same marks the
+        // keyboard I/O shortcuts use (playback store, graph overlay, export dialogs).
+        seekBar.onSetInTime = setVideoInTime;
+        seekBar.onSetOutTime = setVideoOutTime;
 
         prefs.get("videoConfig", function (item) {
             if (item) {
