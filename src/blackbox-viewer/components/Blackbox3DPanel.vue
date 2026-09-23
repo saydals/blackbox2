@@ -14,7 +14,7 @@
                 :title="hasGpsFlag ? 'Log has GPS — estimated replay not needed' : 'Replay without GPS: estimate the flight path from collective + attitude'"
                 @click="onWithoutGps"
             >
-                Without GPS
+                No GPS
             </button>
             <button class="b3d-btn b3d-btn--close" title="Close 3D view" @click="emit('close')">X</button>
             <span id="b3dStatus" class="b3d-status">{{ status }}</span>
