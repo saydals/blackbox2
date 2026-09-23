@@ -65,6 +65,8 @@ export function SeekBar(canvas) {
     let MARK_GRAB_THRESHOLD = 8;
     //null while no mark is being dragged, otherwise "in" or "out"
     let markDragMode = null;
+    //true while the red current-time cursor is being dragged (keeps the ew-resize cursor)
+    let cursorDragMode = null;
 
     this.onSeek = false;
     // Called with the new time while the user drags the in/out boundary line (wired to
@@ -87,6 +89,15 @@ export function SeekBar(canvas) {
         const pixelTimeStep = (max - min) / (canvas.width - BAR_INSET * 2);
 
         return (time - min) / pixelTimeStep + BAR_INSET;
+    }
+
+    //X (canvas px) of the red current-time cursor, or null when the range/time is unknown
+    function cursorCanvasX() {
+        if (typeof min !== "number" || typeof max !== "number" || !(max > min) || typeof current !== "number") {
+            return null;
+        }
+
+        return timeToCanvasX(current);
     }
 
     //Returns "in"/"out" when a press at the given document X starts a boundary-line drag, else null
@@ -185,6 +196,34 @@ export function SeekBar(canvas) {
                 return;
             }
 
+            // Pressing on the red current-time cursor also seeks/drag-seeks (with the
+            // same ew-resize affordance as the blue marks)
+            const cursorX = cursorCanvasX();
+            const nearCursor =
+                cursorX !== null && Math.abs(domXToCanvasX(domX) - cursorX) <= MARK_GRAB_THRESHOLD;
+
+            if (nearCursor) {
+                cursorDragMode = true;
+
+                function onCursorMouseMove(e) {
+                    if (cursorDragMode && e.button === 0) {
+                        seekToDOMPixel(e.pageX - getCanvasOffsetLeft());
+                    }
+                }
+
+                function onCursorMouseUp() {
+                    cursorDragMode = null;
+                    document.body.removeEventListener("mousemove", onCursorMouseMove);
+                    document.body.removeEventListener("mouseup", onCursorMouseUp);
+                    cancelMouseDrag = null;
+                }
+                cancelMouseDrag = onCursorMouseUp;
+                document.body.addEventListener("mousemove", onCursorMouseMove);
+                document.body.addEventListener("mouseup", onCursorMouseUp);
+
+                return;
+            }
+
             seekToDOMPixel(domX);
             document.body.addEventListener("mousemove", onMouseMove);
 
@@ -201,21 +240,28 @@ export function SeekBar(canvas) {
     canvas.addEventListener("mousedown", onMouseDown);
 
     function updateHoverCursor(e) {
-        if (markDragMode) {
+        if (markDragMode || cursorDragMode) {
             canvas.style.cursor = "ew-resize";
             return;
         }
 
         const domX = e.clientX - canvas.getBoundingClientRect().left;
-        canvas.style.cursor = markAt(domX) ? "ew-resize" : "";
+        // Red current-time cursor gets the same ew-resize affordance as the blue marks
+        const cursorX = cursorCanvasX();
+        const nearCursor =
+            cursorX !== null && Math.abs(domXToCanvasX(domX) - cursorX) <= MARK_GRAB_THRESHOLD;
+
+        canvas.style.cursor = markAt(domX) || nearCursor ? "ew-resize" : "";
     }
 
     canvas.addEventListener("mousemove", updateHoverCursor);
-    canvas.addEventListener("mouseleave", () => {
-        if (!markDragMode) {
+
+    function onMouseLeave() {
+        if (!markDragMode && !cursorDragMode) {
             canvas.style.cursor = "";
         }
-    });
+    }
+    canvas.addEventListener("mouseleave", onMouseLeave);
 
     function dragMarkToDOMPixel(which, domX) {
         const time = canvasXToTime(domXToCanvasX(domX));
@@ -299,6 +345,7 @@ export function SeekBar(canvas) {
         canvas.removeEventListener("mousedown", onMouseDown);
         canvas.removeEventListener("touchstart", onTouchStart);
         canvas.removeEventListener("mousemove", updateHoverCursor);
+        canvas.removeEventListener("mouseleave", onMouseLeave);
         if (cancelMouseDrag) {
             cancelMouseDrag();
         }
