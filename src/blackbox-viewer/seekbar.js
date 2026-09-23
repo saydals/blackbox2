@@ -59,8 +59,8 @@ export function SeekBar(canvas) {
     let CURSOR_WIDTH = 1;
     // The bar begins a couple of px inset from the left to allow the cursor to hang over the edge at start&end
     let BAR_INSET = CURSOR_WIDTH;
-    // In/out boundary lines: 4x thicker than the original 1px hairline, DPR-scaled
-    let MARK_LINE_WIDTH = 4;
+    // In/out boundary lines: 8px (2x the previous 4px, 8x the original 1px hairline), DPR-scaled
+    let MARK_LINE_WIDTH = 8;
     // Distance (canvas px) from a boundary line within which a press starts a drag instead of a seek
     let MARK_GRAB_THRESHOLD = 8;
     //null while no mark is being dragged, otherwise "in" or "out"
