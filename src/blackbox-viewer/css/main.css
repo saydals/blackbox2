@@ -773,7 +773,7 @@
 .blackbox-3d-overlay {
     flex: 1 1 0;
     min-width: 0;
-    background: #87b9e6;
+    background: #87ceeb;
     border-radius: 6px;
     overflow: hidden;
 }

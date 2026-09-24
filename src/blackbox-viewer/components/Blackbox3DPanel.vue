@@ -88,6 +88,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useLogStore } from "../stores/log.js";
 import { useAppStore } from "../stores/app.js";
 import { buildReplayDataFromFlightLog } from "../blackbox3d_adapter.js";
+import { FreshMorningEnvironment } from "../three/freshMorningEnvironment.js";
 import { get as configStorageGet, set as configStorageSet } from "../../js/ConfigStorage.js";
 import Blackbox3DSettingsDialog from "./Blackbox3DSettingsDialog.vue";
 // @ts-expect-error Vite ?url asset import for the bundled heli model
@@ -203,11 +204,13 @@ function onSettingsApply(next) {
 let scene, camera, renderer, controls;
 let resizeObserver = null;
 let worldGroup = null;
+let morningEnvironment = null;
 let airplane = null;
 let modelGeneration = 0;
 let propellers = [];
 let propAngle = 0;
 let lastTs = 0;
+let environmentElapsed = 0;
 // Graph-panel parity (craft_heli_3d.js rotateTo): heli.glb nose points +Z while
 // yaw=0 expects -Z, so a constant 180° (PI) trim is needed at load.
 // The "Heading 90" button adds manual trim on top via onYaw().
@@ -260,80 +263,6 @@ const PLAYBACK_STEP_US = 1e6 / PLAYBACK_HZ;
 
 // HUD elements (kept as refs for fast updates)
 let hudAltRel, hudHome, hudPos, hudMode, hudFile, hudSpeed;
-
-// ---------------------------------------------------------------------------
-// Environment
-// ---------------------------------------------------------------------------
-function buildEnvironment() {
-    const parent = worldGroup;
-    const GROUND_SIZE = 600 * S;
-    const ground = new THREE.Mesh(
-        new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE),
-        new THREE.MeshStandardMaterial({ color: 0x5a9e3f }),
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    parent.add(ground);
-
-    const runway = new THREE.Mesh(
-        new THREE.BoxGeometry(12 * S, 0.2 * S, 160 * S),
-        new THREE.MeshStandardMaterial({ color: 0x33363b }),
-    );
-    runway.position.set(0, 0.1 * S, 0);
-    runway.receiveShadow = true;
-    parent.add(runway);
-    for (let z = -70 * S; z <= 70 * S + 1e-6; z += 14 * S) {
-        const dash = new THREE.Mesh(
-            new THREE.BoxGeometry(0.6 * S, 0.05 * S, 5 * S),
-            new THREE.MeshStandardMaterial({ color: 0xffffff }),
-        );
-        dash.position.set(0, 0.22 * S, z);
-        parent.add(dash);
-    }
-
-    const rand = (a, b) => a + Math.random() * (b - a);
-    const treeGroup = new THREE.Group();
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4423 });
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f7d32 });
-     // 나무 배치도 WORLD_SCALE(1/1)에 맞춰 비행장 안쪽으로 당긴다.
-    // (위치 그대로면 280m 밖에 있어 비행장에선 거의 안 보임)
-    for (let i = 0; i < 80; i++) {
-        // 배치 위치도 1/5 (GPS 궤적 공간이 아니라 배경 장식이므로 함께 축소)
-        const x = rand(-280, 280) * S,
-            z = rand(-280, 280) * S;
-        if (Math.abs(x) < 18 * S && Math.abs(z) < 175 * S) continue;
-        const t = new THREE.Group();
-        const h = rand(7, 10) * S;
-        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4 * S, 0.6 * S, h, 6), trunkMat);
-        trunk.position.y = h / 2;
-        trunk.castShadow = true;
-        const leaves = new THREE.Mesh(new THREE.SphereGeometry(rand(2.2, 3.6) * S, 8, 6), leafMat);
-        leaves.position.y = h + 1.2 * S;
-        leaves.castShadow = true;
-        t.add(trunk);
-        t.add(leaves);
-        t.position.set(x, 0, z);
-        treeGroup.add(t);
-    }
-    parent.add(treeGroup);
-
-    const flowerColors = [0xff5d8f, 0xffd166, 0x9b5de5, 0xffffff, 0xf15bb5];
-    const flowerGeo = new THREE.SphereGeometry(0.35 * S, 6, 5);
-    for (let i = 0; i < 240; i++) {
-        // 꽃 배치도 1/5로 당긴다 (나무와 동일 이유).
-        const x = rand(-290, 290) * S,
-            z = rand(-290, 290) * S;
-        if (Math.abs(x) < 14 * S && Math.abs(z) < 170 * S) continue;
-        const f = new THREE.Mesh(
-            flowerGeo,
-            new THREE.MeshStandardMaterial({
-                color: flowerColors[(Math.random() * flowerColors.length) | 0],
-            }),
-        );
-        f.position.set(x, 0.35 * S, z);
-        parent.add(f);
-    }
-}
 
 // Align the static airfield (runway long axis = world +Z) so its direction
 // matches the A→B bearing in the ground plane. The airplane and A/B markers
@@ -1193,6 +1122,8 @@ function animate(ts) {
     rafId = requestAnimationFrame(animate);
     const dt = lastTs ? (ts - lastTs) / 1000 : 0;
     lastTs = ts;
+    const environmentDelta = Math.min(Math.max(dt, 0), 0.1);
+    environmentElapsed += environmentDelta;
 
     if (playingFlag && frames.length) {
         const wallDt = (ts - lastPlayWall) / 1000;
@@ -1232,6 +1163,7 @@ function animate(ts) {
     if (viewMode.value === "fixed" && airplane) {
         camera.lookAt(airplane.position);
     }
+    morningEnvironment?.update(environmentDelta, environmentElapsed);
     renderer.clear();
     renderer.render(scene, camera);
 }
@@ -1247,19 +1179,23 @@ function resize() {
 
 function init() {
     disposed = false;
+    lastTs = 0;
+    environmentElapsed = 0;
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87b9e6);
-    scene.fog = new THREE.Fog(0x87b9e6, 60 * S, 400 * S);
 
     const w = rootRef.value.clientWidth || 800;
     const h = rootRef.value.clientHeight || 600;
-    camera = new THREE.PerspectiveCamera(55, w / h, 0.1 * S, 5000);
+    camera = new THREE.PerspectiveCamera(55, w / h, 0.5, 50000);
     camera.position.copy(CAM_HOME);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     renderer.setSize(w, h);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.autoClear = true;
     rootRef.value.appendChild(renderer.domElement);
 
@@ -1267,20 +1203,9 @@ function init() {
     controls.enableDamping = true;
     controls.target.set(0, 2 * S, 0);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-    sun.position.set(50 * S, 100 * S, 30 * S);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -150 * S;
-    sun.shadow.camera.right = 150 * S;
-    sun.shadow.camera.top = 150 * S;
-    sun.shadow.camera.bottom = -150 * S;
-    scene.add(sun);
-
     worldGroup = new THREE.Group();
     scene.add(worldGroup);
-    buildEnvironment();
+    morningEnvironment = new FreshMorningEnvironment(scene, worldGroup, camera);
     loadAirplane();
 
     hudAltRel = rootRef.value.querySelector("#b3dAltRel");
@@ -1311,6 +1236,10 @@ function dispose() {
         resizeObserver = null;
     }
     setPlaying(false);
+    if (morningEnvironment) {
+        morningEnvironment.dispose();
+        morningEnvironment = null;
+    }
     if (worldGroup) {
         worldGroup.traverse((o) => {
             if (o.geometry) o.geometry.dispose();
@@ -1340,6 +1269,8 @@ function dispose() {
     renderer = null;
     controls = null;
     airplane = null;
+    lastTs = 0;
+    environmentElapsed = 0;
 }
 
 onMounted(async () => {
@@ -1374,7 +1305,7 @@ onBeforeUnmount(() => {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #87b9e6;
+    background: #87ceeb;
 }
 .b3d-toolbar {
     position: absolute;
