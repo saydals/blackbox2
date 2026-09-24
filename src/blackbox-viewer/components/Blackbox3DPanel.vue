@@ -1117,7 +1117,7 @@ function applyFixedView() {
         camTargetY = 2 * S;
     }
     controls.update();
-    camera.position.copy(CAM_HOME);
+    if (airplane) camera.lookAt(airplane.position);
 }
 // Snap the chase camera onto the craft's current position (keeping the
 // user's orbit offset). Used when scrubbing the timeline / resetting the
@@ -1129,7 +1129,7 @@ function snapCameraToCraft() {
         controls.target.copy(airplane.position);
         camTargetY = airplane.position.y;
         controls.update();
-        camera.position.copy(CAM_HOME);
+        camera.lookAt(airplane.position);
         return;
     }
     const t = airplane.position.clone();
@@ -1203,10 +1203,10 @@ function animate(ts) {
         applyFrame(fr);
         if (airplane) {
             if (viewMode.value === "fixed") {
-                // 고정시점: 관찰자 위치 고정, 시선만 기체를 따라 회전.
-                // 카메라를 옮기지 않으므로 멀어지면 작게 보이는 것이 실제와 같음.
-                controls.target.copy(airplane.position);
-                camTargetY = airplane.position.y;
+                // 고정시점: 사용자가 마우스로 옮긴 카메라 위치는 유지하고,
+                // controls.update() 후에만 기체를 바라보게 재지향한다.
+                controls.update();
+                camera.lookAt(airplane.position);
             } else {
                 const tx = airplane.position.x;
                 const tz = airplane.position.z;
@@ -1214,11 +1214,8 @@ function animate(ts) {
                 if (Math.abs(dy) < 0.5 * S) dy = 0;
                 const ty = camTargetY + dy * 0.01;
                 camTargetY = ty;
-                // Dynamic: chase — 기체를 따라다니며 거리 따라 확대/축소.
-                // (사용자 orbit 오프셋은 유지)
-                const before = controls.target.clone();
                 controls.target.lerp(new THREE.Vector3(tx, ty, tz), 0.25);
-                camera.position.add(controls.target.clone().sub(before));
+                controls.update();
             }
         }
         timeLabel.value = `${((playT - startTime) / 1e6).toFixed(1)}s`;
@@ -1228,9 +1225,6 @@ function animate(ts) {
     updatePropellers(dt, thr);
 
     controls.update();
-    if (viewMode.value === "fixed") {
-        camera.position.copy(CAM_HOME);
-    }
     renderer.clear();
     renderer.render(scene, camera);
 }
