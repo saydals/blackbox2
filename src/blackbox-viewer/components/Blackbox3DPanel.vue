@@ -429,8 +429,8 @@ function loadAirplane() {
         if (generation !== modelGeneration) return; // superseded by a newer load
         airplane = gltf.scene;
          // heli.glb raw bounds ≈ 390 units (Blender 단위). WORLD_SCALE=1.0 에서도
-         // 모델 시각적 크기는 기존과 동일하게 0.05625 * 0.2 = 0.01125 유지.
-         airplane.scale.set(0.05625 * 0.2, 0.05625 * 0.2, 0.05625 * 0.2);
+          // 모델 시각적 크기를 기존 대비 2배로 키움 (0.05625 * 0.4 = 0.0225).
+          airplane.scale.set(0.05625 * 0.4, 0.05625 * 0.4, 0.05625 * 0.4);
         airplane.traverse((o) => {
             if (o.isMesh) o.castShadow = true;
         });
