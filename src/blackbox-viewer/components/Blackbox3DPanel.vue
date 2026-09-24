@@ -116,7 +116,7 @@ const replayLabel = ref("▶ Replay");
 // Runs automatically whenever the log carries no GPS fixes; the toolbar
 // "Without GPS" button just opens the parameter dialog.
 // ---------------------------------------------------------------------------
-const EST_KEY = "blackbox3dEstimatorSettings2"; // v2: baro-preferred vertical, home-point position
+const EST_KEY = "blackbox3dEstimatorSettings3"; // v3: neutral bands, hang, settle, drift control
 const EST_DEFAULTS = {
     verticalSource: "baroSmooth", // "none" = collective estimate, "baro" = raw, "baroSmooth" = smoothed
     baroSmoothing: 0.8, // 0..0.95 EMA strength (baroSmooth only)
@@ -125,6 +125,14 @@ const EST_DEFAULTS = {
     fullPitchAccel: 10, // m/s² extra accel at 100% collective
     drag: 0.15, // linear velocity damping (1/s) — bounds drift
     startAltitude: 3, // m above ground at t=0 (no GPS)
+    // --- v3: heli-like motion refinement ---
+    neutralBand: 10, // collective units around the hover point that count as neutral
+    axisNeutralBand: 8, // deg of tilt below which no horizontal translation is driven
+    gravityRelief: 0.7, // 0..1 — vertical accel cancelled at the start of the hang
+    floatTime: 2, // s the craft "hangs" after collective returns to neutral
+    reversePause: 0.6, // s of extra horizontal damping after a cyclic reversal
+    homeBias: 1, // m/s² max acceleration steering the craft back to home
+    homeSoftRadius: 0.6, // fraction of HOME_LIMIT where the home bias starts
 };
 function loadEstimatorSettings() {
     const stored = configStorageGet(EST_KEY);
@@ -181,7 +189,12 @@ let playT = 0;
 let lastPlayWall = 0;
 // Without-GPS flight estimation: dead-reckoned paths drift fast, so the
 // estimated craft is fenced to this radius (metres) around the home point.
-const HOME_LIMIT = 100;
+// v3: raised 100 → 150 so arena-sized flights stay inside the fence.
+const HOME_LIMIT = 150;
+// v3: hang/settle trigger thresholds and the settle damping spike.
+const FLOAT_VZ_TRIGGER = 0.4; // m/s of vertical speed for the hang to trigger
+const REVERSE_SPEED_TRIGGER = 1; // m/s of ground speed for the settle to trigger
+const SETTLE_DRAG_MAX = 6; // 1/s extra horizontal damping right after a reversal
 
 let sourceRows = [];
 let gpsFixes = [];
@@ -675,6 +688,11 @@ function buildFrames(data) {
     let baroBase = null;
     let baroSmooth = null;
     const estDt = PLAYBACK_STEP_US / 1e6; // integration step (frames are exactly PLAYBACK_HZ apart)
+    // --- v3 hang/settle state (per build) ---
+    let floatT = 0; // remaining seconds of the "hang" (gravity relief) window
+    let settleT = 0; // remaining seconds of the reversal-settle damping spike
+    let collNeutralPrev = true; // collective was inside the neutral band on the previous frame
+    let floatAltHold = null; // displayed altitude captured when the hang started (baro modes)
 
     for (let t = startTime; t <= endTime + 0.5; t += PLAYBACK_STEP_US) {
         const row = interpolateRowsAt(sourceRows, Math.min(t, endTime));
@@ -684,22 +702,71 @@ function buildFrames(data) {
         let frameAlt = 0;
         if (useEstimator) {
             // --- Thrust from collective (body frame, up axis) ---
-            const coll = row.collective ?? 0;
-            const aBody = G_ACCEL + (coll - hoverColl) * 0.01 * s.fullPitchAccel;
+            // v3: collective neutral band — within ±neutralBand of the hover
+            // point the collective counts as neutral (pure hover thrust), so
+            // the tiny stick jitter around centre no longer pumps the
+            // altitude. A soft knee (the band is subtracted from the delta
+            // magnitude) keeps the thrust continuous at the band edge.
+            const collDelta = (row.collective ?? 0) - hoverColl;
+            const collEff = Math.sign(collDelta) * Math.max(0, Math.abs(collDelta) - Math.max(0, s.neutralBand));
+            const aThrust = G_ACCEL + collEff * 0.01 * s.fullPitchAccel;
             // --- Rotate body-up into the world (ENU) via attitude ---
             const cP = Math.cos(row.roll);
             const sP = Math.sin(row.roll);
-            const cT = Math.cos(row.pitch);
             const sT = Math.sin(row.pitch);
             const cY = Math.cos(row.yaw);
             const sY = Math.sin(row.yaw);
             const ux = cY * sT * cP + sY * sP;
             const uy = sY * sT * cP - cY * sP;
-            const uz = cT * cP;
+            // v3: attitude neutral band — tilt inside axisNeutralBand (deg)
+            // drives no horizontal translation (thrust treated as straight
+            // up), the same soft knee as the collective band. The DISPLAYED
+            // attitude stays raw — only the translation input is banded.
+            const tiltMag = Math.hypot(ux, uy);
+            const tiltNeutral = Math.sin((Math.max(0, s.axisNeutralBand) * Math.PI) / 180);
+            const tiltEff = Math.max(0, tiltMag - tiltNeutral);
+            const uxT = tiltMag > 1e-9 ? (ux / tiltMag) * tiltEff : 0;
+            const uyT = tiltMag > 1e-9 ? (uy / tiltMag) * tiltEff : 0;
+            const uzT = Math.sqrt(Math.max(0, 1 - Math.min(1, tiltEff * tiltEff)));
+            // v3: hang window — the collective just returned to neutral while
+            // the craft was climbing or descending. Real helis hang for a beat
+            // (rotor inertia + collective cushioning) instead of ballooning or
+            // dropping; model it as decaying gravity relief that fades the net
+            // vertical acceleration out and bleeds the vertical velocity to
+            // zero over floatTime seconds.
+            const collNeutral = Math.abs(collDelta) <= Math.max(0, s.neutralBand);
+            if (collNeutral && !collNeutralPrev && Math.abs(est.vz) > FLOAT_VZ_TRIGGER) {
+                floatT = s.floatTime;
+                floatAltHold = null; // re-capture the displayed altitude at the hang
+            }
+            collNeutralPrev = collNeutral;
+            // v3: reversal settle — the rotor tilt now points against the
+            // current motion (cyclic reversal): the real heli decelerates
+            // hard and sits still for a beat before translating the other
+            // way. Model it with a short-lived extra horizontal drag that
+            // spikes on the reversal and decays over reversePause seconds.
+            const hSpeed = Math.hypot(est.vx, est.vy);
+            if (hSpeed > REVERSE_SPEED_TRIGGER && tiltEff > 0.02) {
+                const dirDot = (est.vx * uxT + est.vy * uyT) / (hSpeed * tiltEff);
+                if (dirDot < -0.25) settleT = s.reversePause;
+            }
+            let settleDrag = 0;
+            if (settleT > 0) {
+                settleDrag = SETTLE_DRAG_MAX * (settleT / Math.max(0.01, s.reversePause));
+                settleT -= estDt;
+            }
+            const hDrag = s.drag + settleDrag;
             // --- Net world accel = thrust - gravity - linear drag, integrate ---
-            const ax = aBody * ux - s.drag * est.vx;
-            const ay = aBody * uy - s.drag * est.vy;
-            const az = aBody * uz - G_ACCEL - s.drag * est.vz;
+            let az = aThrust * uzT - G_ACCEL - s.drag * est.vz;
+            if (floatT > 0) {
+                const frac = floatT / Math.max(0.01, s.floatTime); // 1 → 0
+                const relief = Math.min(1, s.gravityRelief) * frac;
+                az *= 1 - relief; // gravity/thrust overshoot fade out
+                est.vz -= est.vz * Math.min(0.9, relief * 8 * estDt); // bleed vertical velocity → hang
+                floatT -= estDt;
+            }
+            const ax = aThrust * uxT - hDrag * est.vx;
+            const ay = aThrust * uyT - hDrag * est.vy;
             est.vx += ax * estDt;
             est.vy += ay * estDt;
             est.vz += az * estDt;
@@ -710,14 +777,26 @@ function buildFrames(data) {
                 est.z = 0;
                 if (est.vz < 0) est.vz = 0;
             }
-            // --- Field fence: dead reckoning drifts fast, so keep the craft
-            // inside HOME_LIMIT metres of the home point. On reaching the
-            // fence, zero the outward velocity component so the craft slides
-            // along the boundary instead of sticking to it.
+            // --- v3 drift control: steer the craft back toward the home
+            // (starting) point once it drifts past the soft radius, so
+            // dead-reckoned paths bend back toward the field instead of
+            // wandering away for good.
             const dist = Math.hypot(est.x, est.y);
-            if (dist > HOME_LIMIT) {
-                const nx = est.x / dist;
-                const ny = est.y / dist;
+            const softRadius = Math.min(HOME_LIMIT - 1, Math.max(0, s.homeSoftRadius) * HOME_LIMIT);
+            if (dist > softRadius && dist > 1e-6) {
+                const w = Math.min(1, (dist - softRadius) / Math.max(1, HOME_LIMIT - softRadius));
+                const bias = Math.max(0, s.homeBias) * w; // m/s² toward home
+                est.vx -= (est.x / dist) * bias * estDt;
+                est.vy -= (est.y / dist) * bias * estDt;
+            }
+            // --- Field fence: keep the craft inside HOME_LIMIT metres of the
+            // home point. On reaching the fence, zero the outward velocity
+            // component so the craft slides along the boundary instead of
+            // sticking to it.
+            const distFence = Math.hypot(est.x, est.y);
+            if (distFence > HOME_LIMIT) {
+                const nx = est.x / distFence;
+                const ny = est.y / distFence;
                 est.x = nx * HOME_LIMIT;
                 est.y = ny * HOME_LIMIT;
                 const outward = est.vx * nx + est.vy * ny;
@@ -739,6 +818,18 @@ function buildFrames(data) {
                 baroSmooth = baroSmooth == null ? row.baro : baroSmooth + baroAlpha * (row.baro - baroSmooth);
                 const baroVal = s.verticalSource === "baro" ? row.baro : baroSmooth;
                 frameAlt = (baroVal - baroBase) / 100; // RF altitude is cm → m
+                // v3: the hang must stay visible in baro modes too — during
+                // the relief window blend the displayed altitude toward the
+                // value captured when the collective returned to neutral,
+                // then release it smoothly as the relief decays.
+                if (floatT > 0) {
+                    const frac = floatT / Math.max(0.01, s.floatTime);
+                    const relief = Math.min(1, s.gravityRelief) * frac;
+                    if (floatAltHold == null) floatAltHold = frameAlt;
+                    frameAlt = floatAltHold + (frameAlt - floatAltHold) * (1 - relief);
+                } else {
+                    floatAltHold = null;
+                }
             }
         } else {
             const gps = interpolateGpsAt(Math.min(t, endTime));

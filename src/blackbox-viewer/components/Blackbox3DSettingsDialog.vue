@@ -79,6 +79,66 @@
                     <span class="w-40 text-dimmed" title="Height above ground at the start of the replay">Start altitude (m)</span>
                     <input v-model.number="local.startAltitude" type="number" min="0" max="50" step="0.5" class="b3d-num" />
                 </div>
+
+                <div class="mt-1 border-t border-[#2a323c] pt-2">
+                    <span class="font-semibold">Neutral bands (heli-like motion)</span>
+                    <p class="text-dimmed ml-2 leading-relaxed">
+                        Inputs inside the bands count as neutral — the craft neither climbs nor translates, like a real
+                        heli sitting on its rotor.
+                    </p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="w-40 text-dimmed" title="Collective within ± this of the hover point counts as neutral (hover thrust)">Collective neutral ±</span>
+                    <input v-model.number="local.neutralBand" type="number" min="0" max="50" step="1" class="b3d-num" />
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="w-40 text-dimmed" title="Tilt below this angle drives no horizontal translation (displayed attitude is unaffected)">Tilt neutral (deg)</span>
+                    <input v-model.number="local.axisNeutralBand" type="number" min="0" max="30" step="1" class="b3d-num" />
+                </div>
+
+                <div class="mt-1 border-t border-[#2a323c] pt-2">
+                    <span class="font-semibold">Hang (collective → neutral)</span>
+                    <p class="text-dimmed ml-2 leading-relaxed">
+                        When the collective returns to neutral from a climb/descent, gravity relief makes the craft hang
+                        for a moment instead of ballooning or dropping.
+                    </p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="w-40 text-dimmed" title="Fraction of the vertical acceleration cancelled at the start of the hang (decays over the hang time)">Gravity relief (0–1)</span>
+                    <input v-model.number="local.gravityRelief" type="number" min="0" max="1" step="0.05" class="b3d-num" />
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="w-40 text-dimmed" title="How long the craft hangs after the collective returns to neutral">Hang time (s)</span>
+                    <input v-model.number="local.floatTime" type="number" min="0" max="5" step="0.1" class="b3d-num" />
+                </div>
+
+                <div class="mt-1 border-t border-[#2a323c] pt-2">
+                    <span class="font-semibold">Cyclic reversal settle</span>
+                    <p class="text-dimmed ml-2 leading-relaxed">
+                        When the rotor tilt turns against the current motion, the craft brakes hard and sits still for a
+                        beat before moving the other way.
+                    </p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="w-40 text-dimmed" title="Duration of the extra braking after a cyclic reversal">Settle time (s)</span>
+                    <input v-model.number="local.reversePause" type="number" min="0" max="3" step="0.1" class="b3d-num" />
+                </div>
+
+                <div class="mt-1 border-t border-[#2a323c] pt-2">
+                    <span class="font-semibold">Drift control (stay near home)</span>
+                    <p class="text-dimmed ml-2 leading-relaxed">
+                        Past the soft radius the craft is gently steered back toward the home point; a hard fence still
+                        stops it at the limit.
+                    </p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="w-40 text-dimmed" title="Maximum acceleration toward home, reached at the fence">Home bias (m/s²)</span>
+                    <input v-model.number="local.homeBias" type="number" min="0" max="5" step="0.1" class="b3d-num" />
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="w-40 text-dimmed" title="Fraction of the home limit where the home bias starts">Soft radius (× limit)</span>
+                    <input v-model.number="local.homeSoftRadius" type="number" min="0" max="0.95" step="0.05" class="b3d-num" />
+                </div>
             </div>
         </template>
 
@@ -117,6 +177,14 @@ const DEFAULTS = {
     fullPitchAccel: 10,
     drag: 0.15,
     startAltitude: 3,
+    // v3: heli-like motion refinement (mirrors EST_DEFAULTS in Blackbox3DPanel.vue)
+    neutralBand: 10,
+    axisNeutralBand: 8,
+    gravityRelief: 0.7,
+    floatTime: 2,
+    reversePause: 0.6,
+    homeBias: 1,
+    homeSoftRadius: 0.6,
 };
 
 // Working copy edited by the dialog; re-seeded from the parent each time the
