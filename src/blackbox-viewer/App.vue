@@ -149,6 +149,7 @@
 import { computed, ref, watch, watchEffect, onMounted, onUnmounted } from "vue";
 import { bootstrapViewer } from "./main.js";
 import { setVideoInTime, setVideoOutTime } from "./video_handler.js";
+import { showValueTable } from "./playback_controls.js";
 import { useGraphStore } from "./stores/graph.js";
 import { useAppStore } from "./stores/app.js";
 import { useLogStore, FIRMWARE_CLASSES } from "./stores/log.js";
@@ -261,7 +262,7 @@ function onToggleHeader() {
 
 function onToggleTable() {
     appStore.headerDialogOpen = false;
-    graphStore.hasTableOverlay = !graphStore.hasTableOverlay;
+    showValueTable();
     graphStore.hasConfigOverlay = false;
     graphStore.invalidateGraph?.();
 }

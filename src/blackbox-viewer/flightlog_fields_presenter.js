@@ -1206,7 +1206,7 @@ FlightLogFieldPresenter.decodeFieldToFriendly = function (flightLog, fieldName, 
  * decodeFieldToFriendly 선두 분기에서 여기로만 진입한다.
  */
 FlightLogFieldPresenter.decodeFieldRfToFriendly = function (flightLog, fieldName, value) {
-    if (value === undefined) {
+    if (value === undefined || value === null) {
         return "";
     }
 

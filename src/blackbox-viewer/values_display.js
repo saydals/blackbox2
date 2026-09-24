@@ -7,12 +7,23 @@ function isInteger(value) {
 }
 
 function atMost2DecPlaces(value) {
+    // A field may be absent in the current frame (especially in Rotorflight logs
+    // whose field set depends on the enabled feature/debug mask). Treat that the
+    // same way the legacy viewer did instead of aborting the entire table update.
+    if (value === null || value === undefined) {
+        return "(absent)";
+    }
+
+    if (typeof value !== "number") {
+        return String(value);
+    }
+
     if (isInteger(value)) {
         return value;
     }
 
-    if (value === null) {
-        return "(absent)";
+    if (!Number.isFinite(value)) {
+        return String(value);
     }
 
     return value.toFixed(2);

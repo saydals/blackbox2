@@ -4,7 +4,29 @@
             <button id="b3dReplayBtn" class="b3d-btn" :disabled="!hasLog" @click="onReplay">
                 {{ replayLabel }}
             </button>
-            <button class="b3d-btn" @click="onResetView">Reset View</button>
+            <div class="b3d-viewmenu">
+                <button class="b3d-btn" @click="viewMenuOpen = !viewMenuOpen" :title="'관찰자 시점: ' + viewModeLabel">
+                    👁 {{ viewModeLabel }} ▾
+                </button>
+                <div v-if="viewMenuOpen" class="b3d-viewmenu-list">
+                    <button
+                        class="b3d-btn b3d-viewmenu-item"
+                        :class="{ 'b3d-btn--active': viewMode === 'fixed' }"
+                        @click="onSelectView('fixed')"
+                        title="관찰자는 지상에 고정, 기체를 바라봄 (기본)"
+                    >
+                        📍 Fixed View (고정시점)
+                    </button>
+                    <button
+                        class="b3d-btn b3d-viewmenu-item"
+                        :class="{ 'b3d-btn--active': viewMode === 'dynamic' }"
+                        @click="onSelectView('dynamic')"
+                        title="기체를 따라다니며 멀어지면 확대/축소"
+                    >
+                        🎥 Dynamic View (추적)
+                    </button>
+                </div>
+            </div>
             <button class="b3d-btn" @click="onFullScreen">Full Screen</button>
             <button class="b3d-btn" @click="onYaw">Heading 90</button>
             <button
@@ -112,6 +134,22 @@ const playing = ref(false);
 const replayLabel = ref("▶ Replay");
 
 // ---------------------------------------------------------------------------
+// Camera view mode: 'fixed' (default) = 관찰자는 지상에 고정, 기체를 바라봄.
+// 'dynamic' = 기체를 따라다니며 거리 따라 확대/축소 (기존 Reset View 동작).
+// ---------------------------------------------------------------------------
+const VIEW_KEY = "blackbox3dViewMode";
+const viewMode = ref(configStorageGet(VIEW_KEY)?.[VIEW_KEY] || "fixed");
+const viewMenuOpen = ref(false);
+const viewModeLabel = computed(() => (viewMode.value === "dynamic" ? "Dynamic View" : "Fixed View"));
+function onSelectView(mode) {
+    viewMode.value = mode;
+    configStorageSet({ [VIEW_KEY]: mode });
+    viewMenuOpen.value = false;
+    if (mode === "fixed") applyFixedView();
+    else onResetView();
+}
+
+// ---------------------------------------------------------------------------
 // Without-GPS flight estimation (dead reckoning from collective + attitude).
 // Runs automatically whenever the log carries no GPS fixes; the toolbar
 // "Without GPS" button just opens the parameter dialog.
@@ -170,11 +208,25 @@ let modelGeneration = 0;
 let propellers = [];
 let propAngle = 0;
 let lastTs = 0;
-// Graph-panel parity (craft_heli_3d.js rotateTo): no extra heading trim at
-// load. The "Heading 90" button adds manual trim on top via onYaw().
-let yawOffset = 0;
-let camTargetY = 2;
-const CAM_HOME = new THREE.Vector3(0, 25, 55);
+// Graph-panel parity (craft_heli_3d.js rotateTo): heli.glb nose points +Z while
+// yaw=0 expects -Z, so a constant 180° (PI) trim is needed at load.
+// The "Heading 90" button adds manual trim on top via onYaw().
+let yawOffset = Math.PI;
+let camTargetY = 0.4;
+// ---------------------------------------------------------------------------
+// World scale — 모든 사물의 크기를 1/5로 줄여 GPS 움직임이 상대적으로
+// 5배 크게 보이게 한다.
+//
+// 핵심 원칙: "눈에 보이는 것만" 줄이고, "물리량"은 절대 손대지 않는다.
+//  - 줄이는 것: 헬기 모델, 지면/활주로/나무/꽃, 마커 스프라이트, 카메라,
+//    조명, 안개, 그림자 카메라
+//  - 손대지 않는 것: frames x/z/alt (GPS 미터), HUD 숫자, 추정기 물리량,
+//    degToMeters 변환. 시선 처리(applyFrame/animate)는 줄인 좌표계에서
+//    그대로 동작하므로 추가 변환이 필요 없다.
+// ---------------------------------------------------------------------------
+const WORLD_SCALE = 0.2;
+const S = WORLD_SCALE;
+const CAM_HOME = new THREE.Vector3(0, 5, 11);
 
 // playback state
 let frames = [];
@@ -213,7 +265,7 @@ let hudAltRel, hudHome, hudPos, hudMode, hudFile, hudSpeed;
 // ---------------------------------------------------------------------------
 function buildEnvironment() {
     const parent = worldGroup;
-    const GROUND_SIZE = 600;
+    const GROUND_SIZE = 600 * S;
     const ground = new THREE.Mesh(
         new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE),
         new THREE.MeshStandardMaterial({ color: 0x5a9e3f }),
@@ -223,18 +275,18 @@ function buildEnvironment() {
     parent.add(ground);
 
     const runway = new THREE.Mesh(
-        new THREE.BoxGeometry(12, 0.2, 160),
+        new THREE.BoxGeometry(12 * S, 0.2 * S, 160 * S),
         new THREE.MeshStandardMaterial({ color: 0x33363b }),
     );
-    runway.position.set(0, 0.1, 0);
+    runway.position.set(0, 0.1 * S, 0);
     runway.receiveShadow = true;
     parent.add(runway);
-    for (let z = -70; z <= 70; z += 14) {
+    for (let z = -70 * S; z <= 70 * S + 1e-6; z += 14 * S) {
         const dash = new THREE.Mesh(
-            new THREE.BoxGeometry(0.6, 0.05, 5),
+            new THREE.BoxGeometry(0.6 * S, 0.05 * S, 5 * S),
             new THREE.MeshStandardMaterial({ color: 0xffffff }),
         );
-        dash.position.set(0, 0.22, z);
+        dash.position.set(0, 0.22 * S, z);
         parent.add(dash);
     }
 
@@ -242,17 +294,20 @@ function buildEnvironment() {
     const treeGroup = new THREE.Group();
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4423 });
     const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f7d32 });
+    // 나무 배치도 WORLD_SCALE(1/5)에 맞춰 비행장 안쪽으로 당긴다.
+    // (위치 그대로면 280m 밖에 있어 비행장에선 거의 안 보임)
     for (let i = 0; i < 80; i++) {
-        const x = rand(-280, 280),
-            z = rand(-280, 280);
-        if (Math.abs(x) < 18 && Math.abs(z) < 175) continue;
+        // 배치 위치도 1/5 (GPS 궤적 공간이 아니라 배경 장식이므로 함께 축소)
+        const x = rand(-280, 280) * S,
+            z = rand(-280, 280) * S;
+        if (Math.abs(x) < 18 * S && Math.abs(z) < 175 * S) continue;
         const t = new THREE.Group();
-        const h = rand(7, 10);
-        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, h, 6), trunkMat);
+        const h = rand(7, 10) * S;
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4 * S, 0.6 * S, h, 6), trunkMat);
         trunk.position.y = h / 2;
         trunk.castShadow = true;
-        const leaves = new THREE.Mesh(new THREE.SphereGeometry(rand(2.2, 3.6), 8, 6), leafMat);
-        leaves.position.y = h + 1.2;
+        const leaves = new THREE.Mesh(new THREE.SphereGeometry(rand(2.2, 3.6) * S, 8, 6), leafMat);
+        leaves.position.y = h + 1.2 * S;
         leaves.castShadow = true;
         t.add(trunk);
         t.add(leaves);
@@ -262,18 +317,19 @@ function buildEnvironment() {
     parent.add(treeGroup);
 
     const flowerColors = [0xff5d8f, 0xffd166, 0x9b5de5, 0xffffff, 0xf15bb5];
-    const flowerGeo = new THREE.SphereGeometry(0.35, 6, 5);
+    const flowerGeo = new THREE.SphereGeometry(0.35 * S, 6, 5);
     for (let i = 0; i < 240; i++) {
-        const x = rand(-290, 290),
-            z = rand(-290, 290);
-        if (Math.abs(x) < 14 && Math.abs(z) < 170) continue;
+        // 꽃 배치도 1/5로 당긴다 (나무와 동일 이유).
+        const x = rand(-290, 290) * S,
+            z = rand(-290, 290) * S;
+        if (Math.abs(x) < 14 * S && Math.abs(z) < 170 * S) continue;
         const f = new THREE.Mesh(
             flowerGeo,
             new THREE.MeshStandardMaterial({
                 color: flowerColors[(Math.random() * flowerColors.length) | 0],
             }),
         );
-        f.position.set(x, 0.35, z);
+        f.position.set(x, 0.35 * S, z);
         parent.add(f);
     }
 }
@@ -371,15 +427,13 @@ function loadAirplane() {
     const onLoaded = (gltf) => {
         if (generation !== modelGeneration) return; // superseded by a newer load
         airplane = gltf.scene;
-        // heli.glb raw bounds ≈ 390 units long (Blender units); the scene
-        // (ground 600, runway 160, camera at (0,25,55)) is built for ~5-unit
-        // craft, so shrink to 1/20 of the inherited 0.75 → 0.0375, then
-        // enlarge 1.5x per user request → 0.05625.
-        airplane.scale.set(0.05625, 0.05625, 0.05625);
+        // heli.glb raw bounds ≈ 390 units (Blender 단위). WORLD_SCALE=0.2 로
+        // 모든 사물과 함께 1/5 축소 (0.05625 → 0.01125).
+        airplane.scale.set(0.05625 * S, 0.05625 * S, 0.05625 * S);
         airplane.traverse((o) => {
             if (o.isMesh) o.castShadow = true;
         });
-        airplane.position.y = 4;
+        airplane.position.y = 4 * S;
         scene.add(airplane);
         airplane.updateMatrixWorld(true);
         propellers = collectPropellers(airplane, spinProp);
@@ -456,10 +510,12 @@ function buildMarkers(data) {
         return Number.isNaN(v) ? null : v;
     };
     const toAltM = (cm) => (cm == null ? 0 : cm / 100);
+    // 마커 스프라이트 자체(글자 크기)도 1/5로 줄인다. 위치(m.x/m.z)는
+    // GPS 미터 그대로 — 시각적 크기만 축소.
     const addMarker = (latDeg, lonDeg, text, color, heightM, altCm) => {
         const m = degToMeters(latDeg, lonDeg);
-        const sprite = makeTextSprite(text, color, heightM);
-        sprite.position.set(m.x, toAltM(altCm) + heightM * 0.6, m.z);
+        const sprite = makeTextSprite(text, color, heightM * S);
+        sprite.position.set(m.x, toAltM(altCm) + heightM * 0.6 * S, m.z);
         markersGroup.add(sprite);
         return sprite;
     };
@@ -504,7 +560,7 @@ function updateABMarkers(fr) {
         let entry = abMarker[point];
         if (!entry) {
             const m = degToMeters(seen.latDeg, seen.lonDeg);
-            const sprite = makeTextSprite(point.toUpperCase(), "#ff3b3b", 5);
+            const sprite = makeTextSprite(point.toUpperCase(), "#ff3b3b", 5 * S);
             sprite.position.set(m.x, 0, m.z);
             sprite.visible = altCm !== 0;
             markersGroup.add(sprite);
@@ -512,7 +568,7 @@ function updateABMarkers(fr) {
         }
         entry.sprite.visible = altCm !== 0;
         const m = degToMeters(seen.latDeg, seen.lonDeg);
-        entry.sprite.position.set(m.x, altCm / 100 + 5 * 0.6, m.z);
+        entry.sprite.position.set(m.x, altCm / 100 + 5 * 0.6 * S, m.z);
     }
 }
 // ---------------------------------------------------------------------------
@@ -918,6 +974,7 @@ function frameAt(t) {
 
 function applyFrame(fr, opts = {}) {
     if (!airplane || !fr) return;
+    // GPS 궤적(미터)은 원본 그대로 — 사물만 1/5라서 상대적으로 5배 크게 보인다.
     airplane.position.x = fr.x;
     airplane.position.z = fr.z;
     const altRel = (fr.alt || 0) * 1;
@@ -931,7 +988,8 @@ function applyFrame(fr, opts = {}) {
     // following the (unreliable) collective-integrated altitude.
     const holdAlt = !!opts.holdAlt && estWithoutGps.value && lastBuildBaroMode === "off";
     if (!holdAlt) {
-        airplane.position.y = altRel + groundLift + 1.5;
+        // 지면 리프트 상수(3/1.5)는 줄인 헬기(1/5)에 맞춰 스케일. altRel(GPS 미터)는 원본.
+        airplane.position.y = altRel + groundLift * S + 1.5 * S;
         if (hudAltRel) hudAltRel.textContent = altRel.toFixed(1);
     }
     const speed = Math.sqrt((fr.vx || 0) * (fr.vx || 0) + (fr.vz || 0) * (fr.vz || 0));
@@ -1030,7 +1088,8 @@ function onReplay() {
         if (seekRef.value) seekRef.value.value = 0;
         timeLabel.value = "0.0s";
         applyFrame(frameAt(startTime), { holdAlt: true });
-        snapCameraToCraft();
+        if (viewMode.value === "fixed") applyFixedView();
+        else snapCameraToCraft();
         setPlaying(true);
         return;
     }
@@ -1044,11 +1103,34 @@ function onTogglePlay() {
     }
     setPlaying(!playingFlag);
 }
+// Fixed View: 관찰자는 지상(CAM_HOME)에 고정, 기체를 바라봄.
+// 카메라 위치는 움직이지 않고 controls.target만 기체를 향해 회전한다.
+// 기체가 멀어지면 작게 보이는 것이 실제와 같음 — 확대/축소(줌)는
+// Dynamic 모드에서만 수행한다.
+function applyFixedView() {
+    if (!camera || !controls) return;
+    camera.position.copy(CAM_HOME);
+    if (airplane) {
+        controls.target.copy(airplane.position);
+        camTargetY = airplane.position.y;
+    } else {
+        controls.target.set(0, 2 * S, 0);
+        camTargetY = 2 * S;
+    }
+    controls.update();
+}
 // Snap the chase camera onto the craft's current position (keeping the
 // user's orbit offset). Used when scrubbing the timeline / resetting the
 // view while paused, where the lerp-based playback chase doesn't run.
 function snapCameraToCraft() {
     if (!camera || !controls || !airplane) return;
+    if (viewMode.value === "fixed") {
+        // 고정시점: 카메라 위치는 그대로, 바라보는 방향만 기체로.
+        controls.target.copy(airplane.position);
+        camTargetY = airplane.position.y;
+        controls.update();
+        return;
+    }
     const t = airplane.position.clone();
     const delta = t.clone().sub(controls.target);
     controls.target.copy(t);
@@ -1060,13 +1142,14 @@ function onResetView() {
     if (airplane) {
         // Re-frame the craft wherever it is on the (possibly long) estimated
         // path — a fixed home viewpoint would leave it out of frame.
-        camera.position.set(airplane.position.x, airplane.position.y + 25, airplane.position.z + 55);
+        // WORLD_SCALE 적용: 오프셋도 1/5 (25/55 → 5/11).
+        camera.position.set(airplane.position.x, airplane.position.y + 25 * S, airplane.position.z + 55 * S);
         controls.target.copy(airplane.position);
         camTargetY = airplane.position.y;
     } else {
         camera.position.copy(CAM_HOME);
-        controls.target.set(0, 2, 0);
-        camTargetY = 2;
+        controls.target.set(0, 2 * S, 0);
+        camTargetY = 2 * S;
     }
 }
 function onFullScreen() {
@@ -1118,19 +1201,24 @@ function animate(ts) {
         const fr = frameAt(playT);
         applyFrame(fr);
         if (airplane) {
-            const tx = airplane.position.x;
-            const tz = airplane.position.z;
-            let dy = airplane.position.y - camTargetY;
-            if (Math.abs(dy) < 0.5) dy = 0;
-            const ty = camTargetY + dy * 0.01;
-            camTargetY = ty;
-            // Chase: translate the camera by the same amount the look-at target
-            // moves, so the craft stays framed during playback no matter how
-            // far the estimated path travels (the user's orbit offset around
-            // the craft is preserved).
-            const before = controls.target.clone();
-            controls.target.lerp(new THREE.Vector3(tx, ty, tz), 0.25);
-            camera.position.add(controls.target.clone().sub(before));
+            if (viewMode.value === "fixed") {
+                // 고정시점: 관찰자 위치 고정, 시선만 기체를 따라 회전.
+                // 카메라를 옮기지 않으므로 멀어지면 작게 보이는 것이 실제와 같음.
+                controls.target.copy(airplane.position);
+                camTargetY = airplane.position.y;
+            } else {
+                const tx = airplane.position.x;
+                const tz = airplane.position.z;
+                let dy = airplane.position.y - camTargetY;
+                if (Math.abs(dy) < 0.5 * S) dy = 0;
+                const ty = camTargetY + dy * 0.01;
+                camTargetY = ty;
+                // Dynamic: chase — 기체를 따라다니며 거리 따라 확대/축소.
+                // (사용자 orbit 오프셋은 유지)
+                const before = controls.target.clone();
+                controls.target.lerp(new THREE.Vector3(tx, ty, tz), 0.25);
+                camera.position.add(controls.target.clone().sub(before));
+            }
         }
         timeLabel.value = `${((playT - startTime) / 1e6).toFixed(1)}s`;
     }
@@ -1156,11 +1244,11 @@ function init() {
     disposed = false;
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87b9e6);
-    scene.fog = new THREE.Fog(0x87b9e6, 60, 400);
+    scene.fog = new THREE.Fog(0x87b9e6, 60 * S, 400 * S);
 
     const w = rootRef.value.clientWidth || 800;
     const h = rootRef.value.clientHeight || 600;
-    camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 5000);
+    camera = new THREE.PerspectiveCamera(55, w / h, 0.1 * S, 5000);
     camera.position.copy(CAM_HOME);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -1172,17 +1260,17 @@ function init() {
 
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.target.set(0, 2, 0);
+    controls.target.set(0, 2 * S, 0);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.7));
     const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-    sun.position.set(50, 100, 30);
+    sun.position.set(50 * S, 100 * S, 30 * S);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -150;
-    sun.shadow.camera.right = 150;
-    sun.shadow.camera.top = 150;
-    sun.shadow.camera.bottom = -150;
+    sun.shadow.camera.left = -150 * S;
+    sun.shadow.camera.right = 150 * S;
+    sun.shadow.camera.top = 150 * S;
+    sun.shadow.camera.bottom = -150 * S;
     scene.add(sun);
 
     worldGroup = new THREE.Group();
@@ -1330,6 +1418,27 @@ onBeforeUnmount(() => {
     box-shadow:
         inset 0 0 0 2px #ffd54a,
         0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.b3d-viewmenu {
+    position: relative;
+}
+.b3d-viewmenu-list {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: rgba(20, 24, 30, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 8px;
+    min-width: 220px;
+    z-index: 20;
+}
+.b3d-viewmenu-item {
+    text-align: left;
+    white-space: nowrap;
 }
 .b3d-sep {
     width: 1px;
