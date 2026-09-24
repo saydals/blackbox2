@@ -14,6 +14,11 @@ const BUTTERFLY_COUNT = 16;
 const POLLEN_COUNT = 140;
 const WIND_SPEED = 4.8;
 const WIND_DIRECTION = 15;
+const LAYOUT_SCALE = 0.5;
+
+function compactCoordinate(value) {
+  return value * LAYOUT_SCALE;
+}
 
 function smoothStep(value, min, max) {
   const t = THREE.MathUtils.clamp((value - min) / (max - min), 0, 1);
@@ -303,10 +308,10 @@ export class FreshMorningEnvironment {
     this.sunLight.shadow.mapSize.set(1024, 1024);
     this.sunLight.shadow.camera.near = 1;
     this.sunLight.shadow.camera.far = 3000;
-    this.sunLight.shadow.camera.left = -700;
-    this.sunLight.shadow.camera.right = 700;
-    this.sunLight.shadow.camera.top = 700;
-    this.sunLight.shadow.camera.bottom = -700;
+    this.sunLight.shadow.camera.left = -350;
+    this.sunLight.shadow.camera.right = 350;
+    this.sunLight.shadow.camera.top = 350;
+    this.sunLight.shadow.camera.bottom = -350;
     this.sunLight.shadow.bias = -0.0004;
     this.sunLight.target.position.set(0, 0, 0);
     this.lightRoot.add(
@@ -328,19 +333,29 @@ export class FreshMorningEnvironment {
       Math.sin((x + z) * 0.014) * 0.65 +
       0.45;
     const hill = Math.min(7, Math.max(0, distance - 2600) * 0.0026);
-    const pondX = (x - WATER_X) / 25;
-    const pondZ = (z - WATER_Z) / 16;
+    const pondX = (x - compactCoordinate(WATER_X)) / 25;
+    const pondZ = (z - compactCoordinate(WATER_Z)) / 16;
     const pondDistance = pondX * pondX + pondZ * pondZ;
     const pond = pondDistance < 1.8 ? -0.9 * Math.exp(-pondDistance * 1.4) : 0;
     return plateauBlend * (Math.max(0, wave) + hill) + pond;
   }
 
   isExcluded(x, z) {
-    if (Math.abs(x) < 22 && Math.abs(z) < 126) return true;
-    if ((Math.abs(x - 28) < 8 || Math.abs(x + 28) < 8) && z > 4 && z < 78)
+    if (
+      (Math.abs(x - compactCoordinate(28)) < 4 ||
+        Math.abs(x + compactCoordinate(28)) < 4) &&
+      z > -17 &&
+      z < 57
+    )
       return true;
-    if (Math.abs(x) < 42 && z > 92 && z < 116) return true;
-    if (Math.hypot(x - WATER_X, z - WATER_Z) < WATER_RADIUS + 5) return true;
+    if (Math.abs(x) < 21 && z > 42 && z < 58) return true;
+    if (
+      Math.hypot(
+        x - compactCoordinate(WATER_X),
+        z - compactCoordinate(WATER_Z),
+      ) < WATER_RADIUS + 5
+    )
+      return true;
     return false;
   }
 
@@ -410,7 +425,11 @@ export class FreshMorningEnvironment {
       opacity: 0.82,
     });
     this.water = new THREE.Mesh(waterGeometry, waterMaterial);
-    this.water.position.set(WATER_X, 0.02, WATER_Z);
+    this.water.position.set(
+      compactCoordinate(WATER_X),
+      0.02,
+      compactCoordinate(WATER_Z),
+    );
     this.water.receiveShadow = true;
     this.environmentRoot.add(this.water);
 
@@ -424,8 +443,12 @@ export class FreshMorningEnvironment {
     for (let i = 0; i < 24; i++) {
       const angle = (i / 24) * Math.PI * 2 + (this.random() - 0.5) * 0.2;
       const radius = WATER_RADIUS + 1 + this.random() * 3;
-      const x = WATER_X + Math.cos(angle) * radius;
-      const z = WATER_Z + Math.sin(angle) * radius * 0.72;
+      const x = compactCoordinate(
+        WATER_X + Math.cos(angle) * radius,
+      );
+      const z = compactCoordinate(
+        WATER_Z + Math.sin(angle) * radius * 0.72,
+      );
       dummy.position.set(x, this.terrainHeight(x, z) + 0.18, z);
       dummy.rotation.set(
         this.random() * 0.3,
@@ -454,63 +477,6 @@ export class FreshMorningEnvironment {
   }
 
   _buildAirfield() {
-    const runwayTexture = this._canvasTexture(
-      1024,
-      256,
-      (ctx, w, h, random) => {
-        ctx.fillStyle = "#2d3138";
-        ctx.fillRect(0, 0, w, h);
-        const gradient = ctx.createLinearGradient(0, 0, 0, h);
-        gradient.addColorStop(0, "rgba(15, 18, 22, 0.35)");
-        gradient.addColorStop(0.5, "rgba(65, 70, 78, 0.12)");
-        gradient.addColorStop(1, "rgba(15, 18, 22, 0.35)");
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, w, h);
-        for (let i = 0; i < 5000; i++) {
-          const value = 30 + Math.floor(random() * 36);
-          ctx.fillStyle = `rgba(${value}, ${value + 2}, ${value + 5}, ${0.12 + random() * 0.2})`;
-          ctx.fillRect(random() * w, random() * h, 2, 2);
-        }
-        ctx.fillStyle = "#e8edf2";
-        ctx.fillRect(28, 25, w - 56, 7);
-        ctx.fillRect(28, h - 32, w - 56, 7);
-        for (let i = 0; i < 6; i++) {
-          const y = 48 + i * 27;
-          ctx.fillRect(42, y, 60, 12);
-          ctx.fillRect(w - 102, y, 60, 12);
-        }
-        ctx.font = "800 52px system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.save();
-        ctx.translate(180, h / 2);
-        ctx.rotate(Math.PI / 2);
-        ctx.fillText("09", 0, 0);
-        ctx.restore();
-        ctx.save();
-        ctx.translate(w - 180, h / 2);
-        ctx.rotate(-Math.PI / 2);
-        ctx.fillText("27", 0, 0);
-        ctx.restore();
-        for (let x = 310; x < w - 310; x += 105)
-          ctx.fillRect(x, h / 2 - 4, 58, 8);
-        ctx.strokeStyle = "rgba(250, 204, 21, 0.75)";
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.arc(w / 2, h / 2, 43, 0, Math.PI * 2);
-        ctx.stroke();
-      },
-    );
-    runwayTexture.wrapS = THREE.ClampToEdgeWrapping;
-    runwayTexture.wrapT = THREE.ClampToEdgeWrapping;
-    runwayTexture.center.set(0.5, 0.5);
-    runwayTexture.rotation = Math.PI / 2;
-    runwayTexture.needsUpdate = true;
-    const runwayMaterial = this._standardMaterial({
-      map: runwayTexture,
-      roughness: 0.78,
-      metalness: 0.06,
-    });
     const shoulderMaterial = this._standardMaterial({
       color: "#57534e",
       roughness: 0.92,
@@ -547,27 +513,20 @@ export class FreshMorningEnvironment {
         new THREE.BoxGeometry(size[0], size[1], size[2]),
       );
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(position[0], position[1], position[2]);
+      mesh.position.set(
+        compactCoordinate(position[0]),
+        position[1],
+        compactCoordinate(position[2]),
+      );
       mesh.receiveShadow = receiveShadow;
       mesh.castShadow = castShadow;
       this.environmentRoot.add(mesh);
       return mesh;
     };
 
-    addBox([24, 0.08, 232], [0, 0.04, 0], shoulderMaterial);
-    addBox([18, 0.1, 220], [0, 0.1, 0], runwayMaterial);
-    for (let z = -98; z <= 98; z += 14)
-      addBox([0.55, 0.035, 7], [0, 0.17, z], lineMaterial);
-    addBox([0.35, 0.035, 216], [-8.3, 0.17, 0], lineMaterial);
-    addBox([0.35, 0.035, 216], [8.3, 0.17, 0], lineMaterial);
-    for (let z = -104; z <= 104; z += 16) {
-      addBox([1.1, 0.035, 7], [-7.2, 0.17, z], lineMaterial);
-      addBox([1.1, 0.035, 7], [7.2, 0.17, z], lineMaterial);
-    }
-
     for (const x of [-28, 28]) {
       addBox([8, 0.08, 74], [x, 0.08, 40], shoulderMaterial);
-      addBox([6, 0.1, 70], [x, 0.13, 40], runwayMaterial);
+      addBox([6, 0.1, 70], [x, 0.13, 40], darkMaterial);
       addBox([0.3, 0.035, 68], [x - 2.8, 0.2, 40], yellowMaterial);
       addBox([0.3, 0.035, 68], [x + 2.8, 0.2, 40], yellowMaterial);
     }
@@ -580,7 +539,7 @@ export class FreshMorningEnvironment {
     }
 
     const shelter = new THREE.Group();
-    shelter.position.set(0, 0.08, 104);
+    shelter.position.set(0, 0.08, compactCoordinate(104));
     this.environmentRoot.add(shelter);
     const postGeometry = this._track(
       new THREE.CylinderGeometry(0.12, 0.12, 3.8, 10),
@@ -624,7 +583,7 @@ export class FreshMorningEnvironment {
       roughness: 0.55,
     });
     const signGroup = new THREE.Group();
-    signGroup.position.set(-18, 0, 107);
+    signGroup.position.set(compactCoordinate(-18), 0, compactCoordinate(107));
     signGroup.rotation.y = -0.18;
     const signPostGeometry = this._track(
       new THREE.CylinderGeometry(0.09, 0.09, 2.6, 8),
@@ -650,7 +609,7 @@ export class FreshMorningEnvironment {
     this.environmentRoot.add(signGroup);
 
     const windsock = new THREE.Group();
-    windsock.position.set(-23, 0, -30);
+    windsock.position.set(compactCoordinate(-23), 0, compactCoordinate(-30));
     const windsockBase = new THREE.Mesh(
       this._track(new THREE.CylinderGeometry(2.1, 2.2, 0.08, 20)),
       shoulderMaterial,
@@ -711,7 +670,7 @@ export class FreshMorningEnvironment {
     ];
     const dummy = new THREE.Object3D();
     conePositions.forEach(([x, z], index) => {
-      dummy.position.set(x, 0.35, z);
+      dummy.position.set(compactCoordinate(x), 0.35, compactCoordinate(z));
       dummy.updateMatrix();
       cones.setMatrixAt(index, dummy.matrix);
     });
@@ -726,8 +685,8 @@ export class FreshMorningEnvironment {
     let attempts = 0;
     while (placed.length < count && attempts < count * 5) {
       attempts++;
-      const x = (this.random() - 0.5) * 1300;
-      const z = (this.random() - 0.5) * 1300;
+      const x = compactCoordinate((this.random() - 0.5) * 1300);
+      const z = compactCoordinate((this.random() - 0.5) * 1300);
       if (!isValid(x, z)) continue;
       placed.push({ x, z, y: this.terrainHeight(x, z), value: this.random() });
     }
@@ -818,6 +777,8 @@ export class FreshMorningEnvironment {
           x = (this.random() - 0.5) * 1250;
           z = (this.random() - 0.5) * 1250;
         }
+        x = compactCoordinate(x);
+        z = compactCoordinate(z);
         const y = this.terrainHeight(x, z);
         if (this.isExcluded(x, z) || y < -0.05 || y > 12) continue;
         dummy.position.set(x, y, z);
@@ -869,8 +830,16 @@ export class FreshMorningEnvironment {
       [94, -46, "pine"],
     ];
     const addTree = (x, z, type, scale) => {
-      if (treeData.length >= TREE_COUNT || this.isExcluded(x, z)) return;
-      treeData.push({ x, z, type, scale });
+      const compactX = compactCoordinate(x);
+      const compactZ = compactCoordinate(z);
+      if (
+        treeData.length >= TREE_COUNT ||
+        this.isExcluded(compactX, compactZ) ||
+        (Math.abs(compactX) < 22.5 && Math.abs(compactZ) < 70)
+      ) {
+        return;
+      }
+      treeData.push({ x: compactX, z: compactZ, type, scale });
     };
     curated.forEach(([x, z, type]) =>
       addTree(x, z, type, 0.9 + this.random() * 0.5),
@@ -1033,9 +1002,9 @@ export class FreshMorningEnvironment {
         group.add(puff);
       }
       group.position.set(
-        (this.random() - 0.5) * 1000,
+        compactCoordinate((this.random() - 0.5) * 1000),
         72 + this.random() * 70,
-        (this.random() - 0.5) * 1000,
+        compactCoordinate((this.random() - 0.5) * 1000),
       );
       const baseScale = 0.72 + this.random() * 0.7;
       group.scale.setScalar(baseScale);
@@ -1073,7 +1042,7 @@ export class FreshMorningEnvironment {
       right.scale.x = -1;
       group.add(left, right);
       const angle = (i / BUTTERFLY_COUNT) * Math.PI * 2;
-      const radius = 22 + this.random() * 72;
+      const radius = compactCoordinate(22 + this.random() * 72);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
       const center = new THREE.Vector3(x, this.terrainHeight(x, z) + 1.1, z);
@@ -1084,7 +1053,7 @@ export class FreshMorningEnvironment {
         left,
         right,
         center,
-        radius: 1.8 + this.random() * 3.2,
+        radius: compactCoordinate(1.8 + this.random() * 3.2),
         speed: 0.7 + this.random() * 0.9,
         phase: this.random() * Math.PI * 2,
         flapSpeed: 12 + this.random() * 6,
@@ -1094,9 +1063,9 @@ export class FreshMorningEnvironment {
     const pollenGeometry = this._track(new THREE.BufferGeometry());
     const positions = new Float32Array(POLLEN_COUNT * 3);
     for (let i = 0; i < POLLEN_COUNT; i++) {
-      positions[i * 3] = (this.random() - 0.5) * 190;
+      positions[i * 3] = compactCoordinate((this.random() - 0.5) * 190);
       positions[i * 3 + 1] = 0.8 + this.random() * 14;
-      positions[i * 3 + 2] = (this.random() - 0.5) * 190;
+      positions[i * 3 + 2] = compactCoordinate((this.random() - 0.5) * 190);
     }
     pollenGeometry.setAttribute(
       "position",
@@ -1124,15 +1093,20 @@ export class FreshMorningEnvironment {
     const windRad = THREE.MathUtils.degToRad(WIND_DIRECTION);
     const windCos = Math.cos(windRad);
     const windSin = Math.sin(windRad);
+    const cloudLimit = compactCoordinate(500);
     for (const cloud of this.clouds) {
       cloud.group.position.x +=
         windCos * step * (0.7 + WIND_SPEED * 0.55) * cloud.speed;
       cloud.group.position.z +=
         windSin * step * (0.7 + WIND_SPEED * 0.55) * cloud.speed;
-      if (cloud.group.position.x > 500) cloud.group.position.x = -500;
-      if (cloud.group.position.x < -500) cloud.group.position.x = 500;
-      if (cloud.group.position.z > 500) cloud.group.position.z = -500;
-      if (cloud.group.position.z < -500) cloud.group.position.z = 500;
+      if (cloud.group.position.x > cloudLimit)
+        cloud.group.position.x = -cloudLimit;
+      if (cloud.group.position.x < -cloudLimit)
+        cloud.group.position.x = cloudLimit;
+      if (cloud.group.position.z > cloudLimit)
+        cloud.group.position.z = -cloudLimit;
+      if (cloud.group.position.z < -cloudLimit)
+        cloud.group.position.z = cloudLimit;
       cloud.group.position.y =
         cloud.baseY + Math.sin(elapsed * 0.28 + cloud.phase) * 1.2;
       cloud.group.scale.setScalar(cloud.baseScale);
@@ -1163,14 +1137,15 @@ export class FreshMorningEnvironment {
     if (this.pollen) {
       const attribute = this.pollen.geometry.attributes.position;
       const pollenSpeed = step * (0.3 + WIND_SPEED * 0.28);
+      const pollenLimit = compactCoordinate(95);
       for (let i = 0; i < attribute.count; i++) {
         let x = attribute.getX(i) + windCos * pollenSpeed;
         let y = attribute.getY(i) + Math.sin(elapsed * 1.2 + i) * 0.006;
         let z = attribute.getZ(i) + windSin * pollenSpeed;
-        if (x > 95) x = -95;
-        if (x < -95) x = 95;
-        if (z > 95) z = -95;
-        if (z < -95) z = 95;
+        if (x > pollenLimit) x = -pollenLimit;
+        if (x < -pollenLimit) x = pollenLimit;
+        if (z > pollenLimit) z = -pollenLimit;
+        if (z < -pollenLimit) z = pollenLimit;
         attribute.setXYZ(i, x, y, z);
       }
       attribute.needsUpdate = true;
