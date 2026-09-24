@@ -17,7 +17,7 @@
  * Vite asset filenames are content-hashed, so a new deploy has new URLs.
  */
 
-const CACHE_VERSION = "rf-blackbox-v1";
+const CACHE_VERSION = "rf-blackbox-v2";
 const APP_SHELL = ["./", "./index.html", "./manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
