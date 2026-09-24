@@ -1117,6 +1117,7 @@ function applyFixedView() {
         camTargetY = 2 * S;
     }
     controls.update();
+    camera.position.copy(CAM_HOME);
 }
 // Snap the chase camera onto the craft's current position (keeping the
 // user's orbit offset). Used when scrubbing the timeline / resetting the
@@ -1128,6 +1129,7 @@ function snapCameraToCraft() {
         controls.target.copy(airplane.position);
         camTargetY = airplane.position.y;
         controls.update();
+        camera.position.copy(CAM_HOME);
         return;
     }
     const t = airplane.position.clone();
@@ -1226,6 +1228,9 @@ function animate(ts) {
     updatePropellers(dt, thr);
 
     controls.update();
+    if (viewMode.value === "fixed") {
+        camera.position.copy(CAM_HOME);
+    }
     renderer.clear();
     renderer.render(scene, camera);
 }
