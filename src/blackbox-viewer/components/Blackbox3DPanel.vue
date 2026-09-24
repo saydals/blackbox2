@@ -213,6 +213,7 @@ let lastTs = 0;
 // The "Heading 90" button adds manual trim on top via onYaw().
 let yawOffset = Math.PI;
 let camTargetY = 0.4;
+let initialFrameYaw = 0; // 첫 프레임의 yaw를 저장하여 모델 로드 시 초기 회전 적용
 // ---------------------------------------------------------------------------
 // World scale — 모든 사물의 크기를 1/5로 줄여 GPS 움직임이 상대적으로
 // 5배 크게 보이게 한다.
@@ -224,9 +225,9 @@ let camTargetY = 0.4;
 //    degToMeters 변환. 시선 처리(applyFrame/animate)는 줄인 좌표계에서
 //    그대로 동작하므로 추가 변환이 필요 없다.
 // ---------------------------------------------------------------------------
-const WORLD_SCALE = 0.2;
+const WORLD_SCALE = 0.5;
 const S = WORLD_SCALE;
-const CAM_HOME = new THREE.Vector3(0, 5, 11);
+const CAM_HOME = new THREE.Vector3(0, 5 * S, 11 * S);
 
 // playback state
 let frames = [];
@@ -294,7 +295,7 @@ function buildEnvironment() {
     const treeGroup = new THREE.Group();
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4423 });
     const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f7d32 });
-    // 나무 배치도 WORLD_SCALE(1/5)에 맞춰 비행장 안쪽으로 당긴다.
+     // 나무 배치도 WORLD_SCALE(1/2)에 맞춰 비행장 안쪽으로 당긴다.
     // (위치 그대로면 280m 밖에 있어 비행장에선 거의 안 보임)
     for (let i = 0; i < 80; i++) {
         // 배치 위치도 1/5 (GPS 궤적 공간이 아니라 배경 장식이므로 함께 축소)
@@ -427,13 +428,15 @@ function loadAirplane() {
     const onLoaded = (gltf) => {
         if (generation !== modelGeneration) return; // superseded by a newer load
         airplane = gltf.scene;
-        // heli.glb raw bounds ≈ 390 units (Blender 단위). WORLD_SCALE=0.2 로
-        // 모든 사물과 함께 1/5 축소 (0.05625 → 0.01125).
+         // heli.glb raw bounds ≈ 390 units (Blender 단위). WORLD_SCALE=0.5 로
+         // 모든 사물과 함께 1/2 축소 (0.05625 → 0.028125).
         airplane.scale.set(0.05625 * S, 0.05625 * S, 0.05625 * S);
         airplane.traverse((o) => {
             if (o.isMesh) o.castShadow = true;
         });
         airplane.position.y = 4 * S;
+        // 첫 프레임의 yaw에 맞춰 초기 회전을 설정하여 applyFrame에서 180도 점프 방지
+        airplane.rotation.y = -initialFrameYaw + yawOffset;
         scene.add(airplane);
         airplane.updateMatrixWorld(true);
         propellers = collectPropellers(airplane, spinProp);
@@ -973,9 +976,9 @@ function frameAt(t) {
 
 function applyFrame(fr, opts = {}) {
     if (!airplane || !fr) return;
-    // GPS 궤적(미터)은 원본 그대로 — 사물만 1/5라서 상대적으로 5배 크게 보인다.
-    airplane.position.x = fr.x;
-    airplane.position.z = fr.z;
+    // GPS 궤적(미터)에 WORLD_SCALE을 적용하여 기체 움직임 범위를 1/2로 축소.
+    airplane.position.x = fr.x * S;
+    airplane.position.z = fr.z * S;
     const altRel = (fr.alt || 0) * 1;
     // With GPS the craft follows the logged altitude (starts on the ground).
     // Without GPS the estimator already starts at the configured start
@@ -987,8 +990,8 @@ function applyFrame(fr, opts = {}) {
     // following the (unreliable) collective-integrated altitude.
     const holdAlt = !!opts.holdAlt && estWithoutGps.value && lastBuildBaroMode === "off";
     if (!holdAlt) {
-        // 지면 리프트 상수(3/1.5)는 줄인 헬기(1/5)에 맞춰 스케일. altRel(GPS 미터)는 원본.
-        airplane.position.y = altRel + groundLift * S + 1.5 * S;
+        // GPS 미터에 WORLD_SCALE을 적용하여 고도도 1/2로 축소
+        airplane.position.y = altRel * S + groundLift * S + 1.5 * S;
         if (hudAltRel) hudAltRel.textContent = altRel.toFixed(1);
     }
     const speed = Math.sqrt((fr.vx || 0) * (fr.vx || 0) + (fr.vz || 0) * (fr.vz || 0));
@@ -1059,6 +1062,7 @@ function prepareFromActiveLog(autoplay) {
         if (!out.length) throw new Error("No data rows found");
         loadAirplane();
         buildFrames(data);
+        initialFrameYaw = frames[0]?.yaw ?? 0;
         const markerCount = buildMarkers(data);
         applyAirfieldAlignment();
         playT = startTime;
@@ -1117,7 +1121,8 @@ function applyFixedView() {
         camTargetY = 2 * S;
     }
     controls.update();
-    if (airplane) camera.lookAt(airplane.position);
+    // 카메라 위치는 CAM_HOME으로 초기화하되, 사용자가 마우스로 움직일 수 있도록
+    // animate 루프에서 controls.update() 후 camera.lookAt()으로 시야를 추적한다.
 }
 // Snap the chase camera onto the craft's current position (keeping the
 // user's orbit offset). Used when scrubbing the timeline / resetting the
@@ -1143,7 +1148,7 @@ function onResetView() {
     if (airplane) {
         // Re-frame the craft wherever it is on the (possibly long) estimated
         // path — a fixed home viewpoint would leave it out of frame.
-        // WORLD_SCALE 적용: 오프셋도 1/5 (25/55 → 5/11).
+        // WORLD_SCALE 적용: 오프셋도 1/2 (25/55 → 12.5/27.5).
         camera.position.set(airplane.position.x, airplane.position.y + 25 * S, airplane.position.z + 55 * S);
         controls.target.copy(airplane.position);
         camTargetY = airplane.position.y;
@@ -1203,10 +1208,9 @@ function animate(ts) {
         applyFrame(fr);
         if (airplane) {
             if (viewMode.value === "fixed") {
-                // 고정시점: 사용자가 마우스로 옮긴 카메라 위치는 유지하고,
-                // controls.update() 후에만 기체를 바라보게 재지향한다.
-                controls.update();
-                camera.lookAt(airplane.position);
+                // 고정시점: 사용자가 마우스로 카메라를 움직일 수 있음.
+                // controls.target을 기체로 설정하고, update 후 lookAt으로 시야 추적.
+                controls.target.copy(airplane.position);
             } else {
                 const tx = airplane.position.x;
                 const tz = airplane.position.z;
@@ -1225,6 +1229,9 @@ function animate(ts) {
     updatePropellers(dt, thr);
 
     controls.update();
+    if (viewMode.value === "fixed" && airplane) {
+        camera.lookAt(airplane.position);
+    }
     renderer.clear();
     renderer.render(scene, camera);
 }
