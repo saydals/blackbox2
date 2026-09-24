@@ -698,8 +698,7 @@ function buildFrames(data) {
         homeLat = first.lat / 1e7;
         homeLon = first.lon / 1e7;
     }
-    const firstAsl = gpsFixes.find((f) => Number.isFinite(f.gpsAlt) && f.gpsAlt !== 0);
-    homeAsl = firstAsl ? firstAsl.gpsAlt / 10 : 0;
+    homeAsl = 0;
 
     const firstTime = sourceRows[0]?.t ?? 0;
     const lastTime = sourceRows[sourceRows.length - 1]?.t ?? firstTime;
@@ -889,14 +888,14 @@ function buildFrames(data) {
             }
         } else {
             const gps = interpolateGpsAt(Math.min(t, endTime));
-            const gpsAltM = gps ? (gps.gpsAlt || 0) / 10 : (row.gpsAlt || 0) / 10;
             const lat = gps ? gps.lat / 1e7 : homeLat;
             const lon = gps ? gps.lon / 1e7 : homeLon;
             const dLat = (lat - homeLat) * 111320;
             const dLon = (lon - homeLon) * 111320 * Math.cos((homeLat * Math.PI) / 180);
             frameX = dLon;
             frameZ = -dLat;
-            frameAlt = gpsAltM - homeAsl;
+            const baroAltM = (row.baro ?? 0) / 100;
+            frameAlt = baroAltM;
         }
         frames.push({
             t: Math.min(t, endTime),
