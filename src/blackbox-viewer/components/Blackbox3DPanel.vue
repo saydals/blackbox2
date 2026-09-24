@@ -225,7 +225,7 @@ let initialFrameYaw = 0; // 첫 프레임의 yaw를 저장하여 모델 로드 �
 //    degToMeters 변환. 시선 처리(applyFrame/animate)는 줄인 좌표계에서
 //    그대로 동작하므로 추가 변환이 필요 없다.
 // ---------------------------------------------------------------------------
-const WORLD_SCALE = 0.5;
+const WORLD_SCALE = 1.0;
 const S = WORLD_SCALE;
 const CAM_HOME = new THREE.Vector3(0, 5 * S, 11 * S);
 
@@ -295,7 +295,7 @@ function buildEnvironment() {
     const treeGroup = new THREE.Group();
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4423 });
     const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f7d32 });
-     // 나무 배치도 WORLD_SCALE(1/2)에 맞춰 비행장 안쪽으로 당긴다.
+     // 나무 배치도 WORLD_SCALE(1/1)에 맞춰 비행장 안쪽으로 당긴다.
     // (위치 그대로면 280m 밖에 있어 비행장에선 거의 안 보임)
     for (let i = 0; i < 80; i++) {
         // 배치 위치도 1/5 (GPS 궤적 공간이 아니라 배경 장식이므로 함께 축소)
@@ -428,9 +428,9 @@ function loadAirplane() {
     const onLoaded = (gltf) => {
         if (generation !== modelGeneration) return; // superseded by a newer load
         airplane = gltf.scene;
-         // heli.glb raw bounds ≈ 390 units (Blender 단위). WORLD_SCALE=0.5 로
-         // 모든 사물과 함께 1/2 축소 (0.05625 → 0.028125).
-        airplane.scale.set(0.05625 * S, 0.05625 * S, 0.05625 * S);
+         // heli.glb raw bounds ≈ 390 units (Blender 단위). WORLD_SCALE=1.0 에서도
+         // 모델 시각적 크기는 기존과 동일하게 0.05625 * 0.2 = 0.01125 유지.
+         airplane.scale.set(0.05625 * 0.2, 0.05625 * 0.2, 0.05625 * 0.2);
         airplane.traverse((o) => {
             if (o.isMesh) o.castShadow = true;
         });
@@ -976,7 +976,7 @@ function frameAt(t) {
 
 function applyFrame(fr, opts = {}) {
     if (!airplane || !fr) return;
-    // GPS 궤적(미터)에 WORLD_SCALE을 적용하여 기체 움직임 범위를 1/2로 축소.
+     // GPS 궤적(미터)을 그대로 적용 — WORLD_SCALE=1.0으로 원래 크기로.
     airplane.position.x = fr.x * S;
     airplane.position.z = fr.z * S;
     const altRel = (fr.alt || 0) * 1;
@@ -990,7 +990,7 @@ function applyFrame(fr, opts = {}) {
     // following the (unreliable) collective-integrated altitude.
     const holdAlt = !!opts.holdAlt && estWithoutGps.value && lastBuildBaroMode === "off";
     if (!holdAlt) {
-        // GPS 미터에 WORLD_SCALE을 적용하여 고도도 1/2로 축소
+        // GPS 미터를 그대로 적용 — WORLD_SCALE=1.0으로 원래 크기.
         airplane.position.y = altRel * S + groundLift * S + 1.5 * S;
         if (hudAltRel) hudAltRel.textContent = altRel.toFixed(1);
     }
@@ -1148,7 +1148,7 @@ function onResetView() {
     if (airplane) {
         // Re-frame the craft wherever it is on the (possibly long) estimated
         // path — a fixed home viewpoint would leave it out of frame.
-        // WORLD_SCALE 적용: 오프셋도 1/2 (25/55 → 12.5/27.5).
+         // WORLD_SCALE 적용: 오프셋도 1/1 (25/55).
         camera.position.set(airplane.position.x, airplane.position.y + 25 * S, airplane.position.z + 55 * S);
         controls.target.copy(airplane.position);
         camTargetY = airplane.position.y;
