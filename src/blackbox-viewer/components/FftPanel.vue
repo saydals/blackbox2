@@ -171,6 +171,9 @@ const hoverInfo = ref(null);
 const rpmSource = ref("auto");
 const rpmBusy = ref(false);
 
+// Cached FFT data for resolveHeadSpeed when only the timeline position changes
+let cachedFftArgs = null;
+
 const tooltipLeft = computed(() => {
     const el = containerRef.value;
     if (!el || !hoverInfo.value) return "15px";
@@ -356,6 +359,8 @@ function recalculate() {
         return;
     }
 
+    // Cache args for resolveHeadSpeed when only the timeline position changes
+    cachedFftArgs = { log, roll, pitch, frameTimeSec, blackboxRate, startUs, endUs };
     resolveHeadSpeed(log, roll, pitch, frameTimeSec, blackboxRate, startUs, endUs);
 }
 
@@ -465,8 +470,9 @@ const detectedPeaks = computed(() => {
         const scored1P = peakNearScored(channels[0].data, main1P.value, 4.5, limitIdx, fft);
         const f1P = scored1P ? scored1P.freq : main1P.value;
         targets.push({ freq: f1P, tol: 4.5 });
-        targets.push({ freq: f1P * 2, tol: 4 });
-     // Scan every active channel for peaks near each harmonic target
+targets.push({ freq: f1P * 2, tol: 4 });
+    }
+    // Scan every active channel for peaks near each harmonic target
     channels.forEach((ch) => {
         if (!ch.active) return;
         targets.forEach((target) => {
@@ -494,6 +500,13 @@ const detectedPeaks = computed(() => {
         });
 
     return deduped.slice(0, 9);
+});
+
+// Global peak with the highest amplitude across all channels
+const globalMaxPeak = computed(() => {
+    const peaks = detectedPeaks.value;
+    if (!peaks.length) return null;
+    return peaks.reduce((best, p) => p.amp > best.amp ? p : best, peaks[0]);
 });
 
 // Max observed amplitude across the visible frequency band (Y-axis autoscale input)
@@ -1033,6 +1046,16 @@ watch(
     () => [logStore.flightLog, playbackStore.videoExportInTime, playbackStore.videoExportOutTime, activeGyroSource.value],
     () => recalculate(),
     { immediate: true },
+);
+
+// Update LOG RPM when the red timeline bar moves, without recomputing FFT.
+watch(
+    () => logStore.currentBlackboxTime,
+    () => {
+        if (!fftResult.value || !cachedFftArgs || rpmSource.value === "manual") return;
+        const { log, roll, pitch, frameTimeSec, blackboxRate, startUs, endUs } = cachedFftArgs;
+        resolveHeadSpeed(log, roll, pitch, frameTimeSec, blackboxRate, startUs, endUs);
+    },
 );
 </script>
 

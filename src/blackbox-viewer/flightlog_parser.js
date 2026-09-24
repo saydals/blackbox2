@@ -758,6 +758,14 @@ export function FlightLogParser(logData) {
         // Legacy firmware log headers
         "dterm_cut_hz",
         "acc_cut_hz",
+        // Additional filter/governor headers
+        "filter_process_denom",
+        "error_decay_ground",
+        "pitch_compensation",
+        "gyro_decimation_hz",
+        "gyro_rpm_notch_preset",
+        "gyro_rpm_notch_min_hz",
+        "debug_axis",
     ]);
 
     // Fields parsed as CSV and stored directly in sysConfig
@@ -796,6 +804,30 @@ export function FlightLogParser(logData) {
         "chirp_time_seconds",
         "dterm_lpf_dyn_hz",
         "rpm_filter_weights",
+        // Additional governor/filter CSV headers
+        "response_time",
+        "govPID",
+        "rollBW",
+        "pitchBW",
+        "yawBW",
+        "error_limit",
+        "error_decay",
+        "cyclic_coupling",
+        "yaw_stop_gain",
+        "yaw_precomp",
+        "yaw_inertia_precomp",
+        "yaw_tta",
+        "hsi_gain",
+        "hsi_limit",
+        "gyro_rpm_notch_source_pitch",
+        "gyro_rpm_notch_center_pitch",
+        "gyro_rpm_notch_q_pitch",
+        "gyro_rpm_notch_source_roll",
+        "gyro_rpm_notch_center_roll",
+        "gyro_rpm_notch_q_roll",
+        "gyro_rpm_notch_source_yaw",
+        "gyro_rpm_notch_center_yaw",
+        "gyro_rpm_notch_q_yaw",
     ]);
 
     // Fields where parseInt value is divided by 100 on older firmware, raw on newer

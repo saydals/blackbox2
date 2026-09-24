@@ -9,9 +9,9 @@ const BetaflightFile = Capacitor?.Plugins?.BetaflightFile;
  * dialogs via Android's Storage Access Framework (SAF).
  */
 class CapacitorFile {
-    constructor() {
+    #assertAvailable() {
         if (!BetaflightFile) {
-            console.error(`${logHead} Native BetaflightFile plugin is not available`);
+            throw new Error(`${logHead} Native BetaflightFile plugin is not available`);
         }
     }
 
@@ -22,6 +22,7 @@ class CapacitorFile {
      * @returns {{ fileId: string, name: string } | null}  null when cancelled
      */
     async openFile(mimeType, extensions) {
+        this.#assertAvailable();
         try {
             const result = await BetaflightFile.openFile({ mimeType, extensions });
             if (result.cancelled) {
@@ -42,6 +43,7 @@ class CapacitorFile {
      * @returns {{ fileId: string, name: string } | null}  null when cancelled
      */
     async saveFile(fileName, mimeType, extensions) {
+        this.#assertAvailable();
         try {
             const result = await BetaflightFile.saveFile({ fileName, mimeType, extensions });
             if (result.cancelled) {
@@ -60,6 +62,7 @@ class CapacitorFile {
      * @returns {{ directoryUri: string, name: string } | null}
      */
     async pickDirectory() {
+        this.#assertAvailable();
         try {
             const result = await BetaflightFile.pickDirectory();
             if (result.cancelled) {
@@ -77,6 +80,7 @@ class CapacitorFile {
      * @returns {{ uri: string, name: string }[]}
      */
     async getPersistedDirectories() {
+        this.#assertAvailable();
         try {
             const result = await BetaflightFile.getPersistedDirectories();
             return result.directories || [];
@@ -91,6 +95,7 @@ class CapacitorFile {
      * @param {string} directoryUri
      */
     async releaseDirectory(directoryUri) {
+        this.#assertAvailable();
         try {
             await BetaflightFile.releaseDirectory({ directoryUri });
         } catch (error) {
@@ -105,6 +110,7 @@ class CapacitorFile {
      * @returns {string}
      */
     async readFile(fileId) {
+        this.#assertAvailable();
         try {
             const result = await BetaflightFile.readFile({ fileId });
             return result.data;
@@ -121,6 +127,7 @@ class CapacitorFile {
      * @returns {string}  hex-encoded bytes
      */
     async readFileAsHex(fileId) {
+        this.#assertAvailable();
         try {
             const result = await BetaflightFile.readFileAsBlob({ fileId });
             return result.data;
@@ -137,6 +144,7 @@ class CapacitorFile {
      * @param {string} encoding   "utf8" (default) or "hex"
      */
     async writeFile(fileId, data, encoding = "utf8") {
+        this.#assertAvailable();
         try {
             await BetaflightFile.writeFile({ fileId, data, encoding });
         } catch (error) {
@@ -153,6 +161,7 @@ class CapacitorFile {
      * @param {string} encoding   "utf8" (default) or "hex"
      */
     async writeChunk(fileId, data, encoding = "utf8") {
+        this.#assertAvailable();
         try {
             await BetaflightFile.writeChunk({ fileId, data, encoding });
         } catch (error) {
@@ -166,6 +175,7 @@ class CapacitorFile {
      * @param {string} fileId
      */
     async closeFile(fileId) {
+        this.#assertAvailable();
         try {
             await BetaflightFile.closeFile({ fileId });
         } catch (error) {

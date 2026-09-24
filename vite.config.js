@@ -46,6 +46,9 @@ export default defineConfig({
         fs: {
             allow: [__dirname],
         },
+        hmr: {
+            path: "/blackbox2/__vite_hmr",
+        },
     },
     preview: { port: 8080, strictPort: true },
 });
