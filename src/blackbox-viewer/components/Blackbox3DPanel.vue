@@ -59,7 +59,7 @@
         </div>
 
         <div id="b3dHud" class="b3d-hud">
-            <div>Altitude (relative): <span id="b3dAltRel">0.0</span> m</div>
+            <div>Altitude: <span id="b3dAltRel">0.0</span> m</div>
             <div>Craft Speed: <span id="b3dSpeed">0.0</span> m/s</div>
             <div>Dist to home: <span id="b3dHome">0</span> m</div>
             <div>Position: <span id="b3dPos">0, 0</span></div>
