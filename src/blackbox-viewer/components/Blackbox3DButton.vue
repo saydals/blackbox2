@@ -1,17 +1,17 @@
 <template>
-    <!-- 3D Blackbox toggle — sits between Workspace and the hamburger menu,
+    <!-- 3D View toggle — sits between Workspace and the hamburger menu,
         separated by a divider. Opens the 3D replay page over the graph area. -->
     <div class="toolbar-panel log-3d-panel">
-        <h4>3D Blackbox</h4>
+        <h4>3D View</h4>
         <div class="flex items-center gap-0.5">
             <UButton
                 variant="ghost"
                 :color="modelValue ? 'primary' : 'neutral'"
                 size="sm"
                 class="log-3d-btn"
-                :aria-label="modelValue ? 'Close 3D Blackbox' : 'Open 3D Blackbox'"
+                :aria-label="modelValue ? 'Close 3D View' : 'Open 3D View'"
                 :aria-pressed="modelValue"
-                title="3D Blackbox"
+                title="3D View"
                 :disabled="!logStore.hasLog"
                 @click="$emit('update:modelValue', !modelValue)"
             >
