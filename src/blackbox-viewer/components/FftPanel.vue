@@ -1352,17 +1352,12 @@ watch(
     margin-right: 1ch;
 }
 
-/* Compact FFT header on low-resolution viewports: hide the frequency
- * range dropdown and scale the control bar to 80% so it fits narrower
- * screens while keeping the same anchor point. */
+/* Compact FFT header on low-resolution viewports: scale the control bar
+ * to 90% so it fits narrower screens while keeping the same anchor point. */
  @media (max-width: 840px), (max-height: 500px) {
-     .fft-freq-range {
-         display: none;
-    }
-
-    .fft-header {
-        transform: scale(0.9);
-        transform-origin: top left;
-    }
-}
+     .fft-header {
+         transform: scale(0.9);
+         transform-origin: top left;
+     }
+ }
 </style>
