@@ -1029,6 +1029,7 @@ watch(
         showRoll,
         showPitch,
         showYaw,
+        showPeakMarkers,
         hoverInfo,
         detectedPeaks,
         () => appStore.darkThemeEnabled,
@@ -1364,7 +1365,7 @@ watch(
     }
 
     .fft-header {
-        transform: scale(0.8);
+        transform: scale(0.9);
         transform-origin: top left;
     }
 }
