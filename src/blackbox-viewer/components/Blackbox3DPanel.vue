@@ -1455,22 +1455,18 @@ onBeforeUnmount(() => {
     color: #cfe8ff;
 }
 
-/* Small-resolution HUD: reduce to roughly half size while staying
- * anchored at the top-right corner. Triggers when the viewport is
- * narrower than 600 px OR shorter than 500 px (landscape phones, etc.). */
+/* Small-resolution HUD: scale to 70% while keeping the same top-right
+ * anchor so the corner position does not move. Triggers when the viewport
+ * is narrower than 840 px OR shorter than 500 px (landscape phones, etc.). */
 @media (max-width: 840px), (max-height: 500px) {
     .b3d-hud {
-        top: 5px;
-        right: 5px;
-        padding: 4px 6px;
-        border-radius: 4px;
-        font-size: 7px;
-        line-height: 1.4;
-        letter-spacing: 0;
+        transform: scale(0.7);
+        transform-origin: top right;
     }
+
     .b3d-file {
-        margin-top: 2px;
-        font-size: 6.5px;
+        transform: scale(0.7);
+        transform-origin: top right;
     }
 }
 .b3d-empty {
