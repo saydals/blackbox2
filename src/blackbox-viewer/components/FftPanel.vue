@@ -2,86 +2,6 @@
     <div class="fft-panel">
         <!-- View Header & Controls (ported from vibanalyse FftSpectrumView) -->
         <div class="fft-header">
-            <!-- COMPACT-ONLY hamburger. On low-resolution viewports the inline
-                 bar keeps only Roll/Pitch/Yaw/RAW; every other control moves
-                 behind this burger. Hidden on wide viewports, where the full
-                 inline bar renders exactly as before. -->
-            <div ref="fftMenuWrapRef" class="fft-menu-wrap">
-                <button
-                    class="fft-burger"
-                    :class="{ 'is-open': fftMenuOpen }"
-                    title="More FFT options"
-                    aria-label="More FFT options"
-                    :aria-expanded="fftMenuOpen"
-                    @click="fftMenuOpen = !fftMenuOpen"
-                >
-                    <UIcon name="i-lucide-menu" class="size-4" />
-                </button>
-
-                <!-- Dropdown duplicates bound to the SAME refs as the desktop
-                     inline controls, so both representations always agree. -->
-                <div v-if="fftMenuOpen" class="fft-menu-pop">
-                    <button
-                        class="fft-chip fft-menu-row"
-                        :class="{ 'is-on': showPeakMarkers }"
-                        @click="showPeakMarkers = !showPeakMarkers"
-                    >
-                        Mark
-                    </button>
-
-                    <div class="fft-field" title="Set the Y-axis subdivision step based on the vibration magnitude">
-                        <span>Y-axis</span>
-                        <select v-model="yScalePreset" class="fft-select">
-                            <option value="auto">Auto ({{ yAxisStep }}°)</option>
-                            <option value="0.01">0.01°</option>
-                            <option value="0.02">0.02°</option>
-                            <option value="0.05">0.05°</option>
-                            <option value="0.2">0.2°</option>
-                            <option value="0.5">0.5°</option>
-                            <option value="1.0">1.0°</option>
-                            <option value="2.0">2.0°</option>
-                            <option value="5.0">5.0°</option>
-                        </select>
-                    </div>
-
-                    <div class="fft-field" :title="rpmSourceTip">
-                        <span>RPM</span>
-                        <input
-                            v-model="headSpeedInput"
-                            class="fft-input"
-                            type="text"
-                            inputmode="numeric"
-                            @change="onHeadSpeedChange"
-                        />
-                        <span v-if="rpmBadge" class="fft-badge" :class="rpmBadge.cls">{{ rpmBadge.text }}</span>
-                    </div>
-
-                    <div class="fft-field">
-                        <select v-model.number="maxFreqRange" class="fft-select">
-                            <option :value="250">250Hz</option>
-                            <option :value="500">500Hz</option>
-                            <option :value="1000">1000Hz</option>
-                        </select>
-                    </div>
-
-                    <div class="fft-field" title="Sets the X-axis zero point (start frequency). Raise it to hide excessive low-frequency vibration below 25Hz.">
-                        <span>Skip Hz</span>
-                        <select v-model.number="skipHz" class="fft-select">
-                            <option v-for="v in 11" :key="(v - 1) * 5" :value="(v - 1) * 5">{{ (v - 1) * 5 }}Hz</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-
-            <div class="fft-title">
-                <span class="fft-title-icon"><UIcon name="i-lucide-activity" class="size-4" /></span>
-                <span class="fft-title-text">FFT Vibration Frequency Spectrum</span>
-                <!-- Short title shown only on compact viewports so the header
-                     stays a single line (the long one used to wrap to 2-3 rows) -->
-                <span class="fft-title-text-compact">FFT</span>
-                <span class="fft-title-field">{{ activeGyroSource === 'raw' ? 'gyroRAW' : 'gyroADC' }}</span>
-            </div>
-
             <div class="fft-controls">
                 <!-- Axis toggles -->
                 <div class="fft-seg">
@@ -111,66 +31,61 @@
                     {{ gyroSourceLabel }}
                 </button>
 
-                <!-- Controls that collapse into the compact hamburger. Wide
-                     viewports render them inline exactly as before via
-                     display: contents; compact viewports hide the whole group. -->
-                <div class="fft-extra">
-                    <!-- Peak markers toggle -->
-                    <button
-                        class="fft-chip"
-                        :class="{ 'is-on': showPeakMarkers }"
-                        title="Toggle all peak frequency markers (up to 9) on/off"
-                        @click="showPeakMarkers = !showPeakMarkers"
-                    >
-                        Mark
-                    </button>
+                <!-- Peak markers toggle -->
+                <button
+                    class="fft-chip"
+                    :class="{ 'is-on': showPeakMarkers }"
+                    title="Toggle all peak frequency markers (up to 9) on/off"
+                    @click="showPeakMarkers = !showPeakMarkers"
+                >
+                    Mark
+                </button>
 
-                    <!-- Y-axis preset -->
-                    <div class="fft-field" title="Set the Y-axis subdivision step based on the vibration magnitude">
-                        <span>Y-axis</span>
-                        <select v-model="yScalePreset" class="fft-select">
-                            <option value="auto">Auto ({{ yAxisStep }}°)</option>
-                            <option value="0.01">0.01°</option>
-                            <option value="0.02">0.02°</option>
-                            <option value="0.05">0.05°</option>
-                            <option value="0.2">0.2°</option>
-                            <option value="0.5">0.5°</option>
-                            <option value="1.0">1.0°</option>
-                            <option value="2.0">2.0°</option>
-                            <option value="5.0">5.0°</option>
-                        </select>
-                    </div>
+                <!-- Y-axis preset -->
+                <div class="fft-field" title="Set the Y-axis subdivision step based on the vibration magnitude">
+                    <span>Y-axis</span>
+                    <select v-model="yScalePreset" class="fft-select">
+                        <option value="auto">Auto ({{ yAxisStep }}°)</option>
+                        <option value="0.01">0.01°</option>
+                        <option value="0.02">0.02°</option>
+                        <option value="0.05">0.05°</option>
+                        <option value="0.2">0.2°</option>
+                        <option value="0.5">0.5°</option>
+                        <option value="1.0">1.0°</option>
+                        <option value="2.0">2.0°</option>
+                        <option value="5.0">5.0°</option>
+                    </select>
+                </div>
 
-                    <!-- Head speed RPM -->
-                    <div class="fft-field" :title="rpmSourceTip">
-                        <span>Head speed</span>
-                        <input
-                            v-model="headSpeedInput"
-                            class="fft-input"
-                            type="text"
-                            inputmode="numeric"
-                            @change="onHeadSpeedChange"
-                        />
-                        <span>RPM</span>
-                        <span v-if="rpmBadge" class="fft-badge" :class="rpmBadge.cls">{{ rpmBadge.text }}</span>
-                    </div>
+                <!-- Head speed RPM -->
+                <div class="fft-field" :title="rpmSourceTip">
+                    <span>Head speed</span>
+                    <input
+                        v-model="headSpeedInput"
+                        class="fft-input"
+                        type="text"
+                        inputmode="numeric"
+                        @change="onHeadSpeedChange"
+                    />
+                    <span>RPM</span>
+                    <span v-if="rpmBadge" class="fft-badge" :class="rpmBadge.cls">{{ rpmBadge.text }}</span>
+                </div>
 
-                    <!-- Max frequency range -->
-                    <div class="fft-field">
-                        <select v-model.number="maxFreqRange" class="fft-select">
-                            <option :value="250">250Hz</option>
-                            <option :value="500">500Hz</option>
-                            <option :value="1000">1000Hz</option>
-                        </select>
-                    </div>
+                <!-- Max frequency range -->
+                <div class="fft-field">
+                    <select v-model.number="maxFreqRange" class="fft-select">
+                        <option :value="250">250Hz</option>
+                        <option :value="500">500Hz</option>
+                        <option :value="1000">1000Hz</option>
+                    </select>
+                </div>
 
-                    <!-- Skip Hz -->
-                    <div class="fft-field" title="Sets the X-axis zero point (start frequency). Raise it to hide excessive low-frequency vibration below 25Hz.">
-                        <span>Skip Hz</span>
-                        <select v-model.number="skipHz" class="fft-select">
-                            <option v-for="v in 11" :key="(v - 1) * 5" :value="(v - 1) * 5">{{ (v - 1) * 5 }}Hz</option>
-                        </select>
-                    </div>
+                <!-- Skip Hz -->
+                <div class="fft-field" title="Sets the X-axis zero point (start frequency). Raise it to hide excessive low-frequency vibration below 25Hz.">
+                    <span>Skip Hz</span>
+                    <select v-model.number="skipHz" class="fft-select">
+                        <option v-for="v in 11" :key="(v - 1) * 5" :value="(v - 1) * 5">{{ (v - 1) * 5 }}Hz</option>
+                    </select>
                 </div>
             </div>
         </div>
@@ -249,28 +164,6 @@ const hoverInfo = ref(null);
 // "auto" before the first resolution pass.
 const rpmSource = ref("auto");
 const rpmBusy = ref(false);
-
-// ---- Compact hamburger dropdown (low-resolution viewports only) ----
-// The dropdown simply mirrors the same refs as the desktop inline controls,
-// so opening/toggling from either representation stays consistent.
-const fftMenuOpen = ref(false);
-const fftMenuWrapRef = ref(null);
-
-function onFftMenuDocPointer(e) {
-    if (!fftMenuOpen.value) {
-        return;
-    }
-    const wrap = fftMenuWrapRef.value;
-    if (wrap && !wrap.contains(e.target)) {
-        fftMenuOpen.value = false;
-    }
-}
-
-function onFftMenuKeydown(e) {
-    if (e.key === "Escape") {
-        fftMenuOpen.value = false;
-    }
-}
 
 // Cached FFT data for resolveHeadSpeed when only the timeline position changes
 let cachedFftArgs = null;
@@ -1109,9 +1002,6 @@ onMounted(() => {
     if (containerRef.value) {
         resizeObserver.observe(containerRef.value);
     }
-    // Close the compact hamburger when tapping outside it or pressing Escape.
-    document.addEventListener("pointerdown", onFftMenuDocPointer, true);
-    document.addEventListener("keydown", onFftMenuKeydown, true);
     render();
 });
 
@@ -1120,8 +1010,6 @@ onBeforeUnmount(() => {
         resizeObserver.disconnect();
         resizeObserver = null;
     }
-    document.removeEventListener("pointerdown", onFftMenuDocPointer, true);
-    document.removeEventListener("keydown", onFftMenuKeydown, true);
 });
 
 // Redraw when any display input changes
@@ -1189,33 +1077,8 @@ watch(
     border-bottom: 1px solid var(--border-color, #e5e5e5);
 }
 
-.fft-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
 }
-
-.fft-title-icon {
-    display: inline-flex;
-    padding: 5px;
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--text-secondary, #888) 10%, transparent);
-    color: var(--text-secondary, #888);
-}
-
-.fft-title-text {
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.fft-title-field {
-    padding: 1px 5px;
-    border-radius: 4px;
-    border: 1px solid var(--border-color, #ccc);
-    font-family: var(--font-mono, monospace);
-    font-size: 10px;
-    color: var(--text-secondary, #888);
-}
+</style>
 
 .fft-controls {
     display: flex;
@@ -1461,156 +1324,5 @@ watch(
     color: #10b981;
 }
 
-/* ---- Compact hamburger dropdown ----
- * Wide viewports: the wrap is hidden and .fft-extra uses display: contents,
- * so its children lay out inline exactly like the pre-split markup.
- * Compact viewports (low resolution): the wrap shows, .fft-extra hides,
- * and the dropped controls live in the burger's dropdown instead.
- */
-.fft-menu-wrap {
-    display: none;
-}
-
-.fft-extra {
-    display: contents;
-}
-
-.fft-title-text-compact {
-    display: none;
-}
-
-.fft-burger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    border-radius: 8px;
-    border: 1px solid var(--border-color, #ccc);
-    background: var(--surface-50, #f5f5f5);
-    color: var(--text-secondary, #888);
-    cursor: pointer;
-}
-
-.fft-burger.is-open {
-    color: var(--text-primary, #222);
-    background: var(--surface-100, #eee);
-}
-
-.fft-menu-pop {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 40; /* above .fft-notice (30) and .fft-tooltip (20) */
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 216px;
-    padding: 8px;
-    border-radius: 10px;
-    border: 1px solid var(--border-color, #ccc);
-    background: var(--surface-0, #fff);
-    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.2);
-}
-
-.blackbox-viewer-root.dark .fft-menu-pop {
-    background: var(--surface-800, #101010);
-    border-color: var(--surface-700, #333);
-    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.6);
-}
-
-.fft-menu-pop .fft-field {
-    justify-content: space-between;
-}
-
-.fft-menu-pop .fft-menu-row {
-    justify-content: center;
-}
-
-/*
- * COMPACT FFT HEADER — low-resolution viewports only (same breakpoint as
- * the compact chrome in main.css: phone portrait width <= 675px, phone
- * landscape height <= 500px). The title + 5 extra controls used to wrap
- * into 2-3 rows and starve the FFT canvas; here the bar stays a single
- * ~28px row holding only Roll / Pitch / Yaw / RAW (+ the burger), which
- * hands every freed pixel to the spectrum.
- */
-@media (max-width: 675px), (max-height: 500px) {
-    .fft-panel {
-        padding: 6px;
-        gap: 4px;
-    }
-
-    .fft-header {
-        gap: 6px;
-        padding-bottom: 4px;
-    }
-
-    .fft-menu-wrap {
-        display: block;
-        position: relative;
-        flex: none;
-    }
-
-    .fft-extra {
-        display: none;
-    }
-
-    /* Long title hides; short "FFT" label + burger keep one line */
-    .fft-title-text {
-        display: none;
-    }
-
-    .fft-title-text-compact {
-        display: inline;
-        font-size: 12px;
-        font-weight: 600;
-    }
-
-    /* The RAW chip already carries the source info on the compact bar */
-    .fft-title-field {
-        display: none;
-    }
-
-    .fft-title-icon {
-        padding: 3px;
-    }
-
-    .fft-title-icon .size-4 {
-        width: 0.9rem;
-        height: 0.9rem;
-    }
-
-    .fft-controls {
-        gap: 5px;
-    }
-
-    .fft-seg {
-        padding: 1px;
-        gap: 1px;
-    }
-
-    .fft-chip {
-        padding: 3px 6px;
-        font-size: 11px;
-        gap: 3px;
-    }
-
-    .fft-gyro-btn {
-        min-width: 64px;
-        width: 64px;
-        font-size: 11px;
-    }
-
-    .dot {
-        width: 6px;
-        height: 6px;
-    }
-
-    .fft-select,
-    .fft-input {
-        font-size: 11px;
-    }
 }
 </style>

@@ -911,12 +911,12 @@
  */
 @media (max-width: 675px), (max-height: 500px) {
     :root {
-        --toolbar-height: 34px; /* was 76px (64px <=1020px) */
+        --toolbar-height: 40px; /* was 76px (64px <=1020px) */
         --seekbar-height: calc(26px + 0.25em); /* was calc(50px + 0.5em) */
         --fullscreen-graph-gap: 6px; /* was 15px — tighter fullscreen frame */
     }
 
-    /* ---- Top toolbar: 64px -> 34px ---- */
+    /* ---- Top toolbar: 64px -> 40px ---- */
     .blackbox-viewer-root.has-video .video-top-controls,
     .blackbox-viewer-root.has-log .video-top-controls {
         padding: 2px 8px;
