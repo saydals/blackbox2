@@ -965,6 +965,21 @@
 }
 
 /*
+ * With the seek-bar hidden the fixed .graph-row must reclaim the space that
+ * was reserved for it. The normal `bottom` includes --seekbar-height; here we
+ * drop that term so the 3D overlay stretches down to the statusbar / safe-area
+ * inset instead of stopping at the invisible seekbar slot.
+ */
+.blackbox-viewer-root.blackbox3d-open.has-log .graph-row,
+.blackbox-viewer-root.blackbox3d-open.has-video .graph-row {
+    bottom: calc(
+        var(--statusbar-height) + 0.5em +
+        var(--safe-area-inset-bottom)
+    );
+}
+
+
+/*
  * FFT VIBRATION open: always hide the Legend panel so the spectrum panel
  * fills the full graph-row width on every screen size (previously the legend
  * was hidden only below 675 px — a narrow phone breakpoint).
