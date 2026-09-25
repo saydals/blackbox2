@@ -233,15 +233,17 @@ const settingsStore = useSettingsStore();
 const { userSettings } = settingsStore;
 const legendContainer = ref(null);
 const windowWidth = ref(window.innerWidth);
+const windowHeight = ref(window.innerHeight);
 
 if (typeof window !== "undefined") {
     window.addEventListener("resize", () => {
         windowWidth.value = window.innerWidth;
+        windowHeight.value = window.innerHeight;
     });
 }
 
 const legendValues = computed(() => graphStore.legendValues);
-const isCompact = computed(() => windowWidth.value <= 840);
+const isCompact = computed(() => windowWidth.value <= 840 || windowHeight.value <= 500);
 
 // --- Highlight ---
 const highlightGi = ref(null);
