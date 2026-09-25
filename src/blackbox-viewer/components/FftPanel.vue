@@ -43,7 +43,7 @@
 
                 <!-- Y-axis preset -->
                 <div class="fft-field" title="Set the Y-axis subdivision step based on the vibration magnitude">
-                    <span>Y-axis</span>
+                    <span class="fft-label">Y-axis</span>
                     <select v-model="yScalePreset" class="fft-select">
                         <option value="auto">Auto ({{ yAxisStep }}°)</option>
                         <option value="0.01">0.01°</option>
@@ -57,9 +57,8 @@
                     </select>
                 </div>
 
-                <!-- Head speed RPM -->
+                <!-- Head speed RPM: label removed, input box + RPM + est badge preserved -->
                 <div class="fft-field" :title="rpmSourceTip">
-                    <span>Head speed</span>
                     <input
                         v-model="headSpeedInput"
                         class="fft-input"
@@ -67,22 +66,20 @@
                         inputmode="numeric"
                         @change="onHeadSpeedChange"
                     />
-                    <span>RPM</span>
+                    <span class="fft-label">RPM</span>
                     <span v-if="rpmBadge" class="fft-badge" :class="rpmBadge.cls">{{ rpmBadge.text }}</span>
                 </div>
 
-                <!-- Max frequency range -->
-                <div class="fft-field">
-                    <select v-model.number="maxFreqRange" class="fft-select">
-                        <option :value="250">250Hz</option>
-                        <option :value="500">500Hz</option>
-                        <option :value="1000">1000Hz</option>
-                    </select>
-                </div>
+                <!-- Max frequency range dropdown -->
+                <select v-model.number="maxFreqRange" class="fft-select">
+                    <option :value="250">250Hz</option>
+                    <option :value="500">500Hz</option>
+                    <option :value="1000">1000Hz</option>
+                </select>
 
                 <!-- Skip Hz -->
                 <div class="fft-field" title="Sets the X-axis zero point (start frequency). Raise it to hide excessive low-frequency vibration below 25Hz.">
-                    <span>Skip Hz</span>
+                    <span class="fft-label">Skip Hz</span>
                     <select v-model.number="skipHz" class="fft-select">
                         <option v-for="v in 11" :key="(v - 1) * 5" :value="(v - 1) * 5">{{ (v - 1) * 5 }}Hz</option>
                     </select>
@@ -1095,12 +1092,9 @@ watch(
 }
 
 .fft-seg {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 2px;
-    padding: 2px;
-    border-radius: 8px;
-    border: 1px solid var(--border-color, #e5e5e5);
+    gap: 4px;
 }
 
 .fft-chip {
@@ -1116,6 +1110,8 @@ watch(
     color: var(--text-secondary, #888);
     background: var(--surface-50, #f5f5f5);
     transition: background 0.15s, color 0.15s;
+    height: 26px;
+    box-sizing: border-box;
 }
 
 .fft-chip:hover {
@@ -1162,38 +1158,47 @@ watch(
 }
 
 .fft-field {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 8px;
-    border-radius: 8px;
-    border: 1px solid var(--border-color, #e5e5e5);
+}
+
+/* Labels matched to Mark button font-size (12px) and weight (500) */
+.fft-label,
+.fft-field > span {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary, #888);
+    user-select: none;
 }
 
 .fft-select,
 .fft-input {
-    border-radius: 4px;
+    border-radius: 6px;
     border: 1px solid var(--border-color, #ccc);
-    background: transparent;
+    background: var(--surface-50, #f5f5f5);
     color: var(--text-primary, #222);
-    font-family: var(--font-mono, monospace);
     font-size: 12px;
-    padding: 1px 4px;
+    font-weight: 500;
+    padding: 3px 6px;
     outline: none;
+    height: 26px;
+    box-sizing: border-box;
 }
 
 .fft-input {
-    width: 56px;
+    width: 60px;
     text-align: right;
+    font-family: inherit;
 }
 
 /* Head-speed origin badge: LOG = read from the log's eRPM record, EST = gyro estimator */
 .fft-badge {
     font-family: var(--font-mono, monospace);
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 700;
     line-height: 1;
-    padding: 2px 4px;
+    padding: 3px 5px;
     border-radius: 4px;
     letter-spacing: 0.04em;
 }

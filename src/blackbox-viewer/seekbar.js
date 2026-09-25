@@ -131,6 +131,50 @@ export function SeekBar(canvas) {
         return null;
     }
 
+    // Returns which bar ("in", "out", or "cursor") is closest to the given DOM X coordinate
+    function getClosestBar(domX) {
+        if (typeof min !== "number" || typeof max !== "number" || !(max > min)) {
+            return null;
+        }
+
+        const x = domXToCanvasX(domX);
+        const inX = inTime !== false ? timeToCanvasX(inTime) : null;
+        const outX = outTime !== false ? timeToCanvasX(outTime) : null;
+        const cursorX = cursorCanvasX();
+
+        // If in and out are at essentially the same position, pick based on direction:
+        // pressing to the right moves out, pressing to the left moves in
+        if (inX !== null && outX !== null && Math.abs(inX - outX) < 1) {
+            const distMark = Math.abs(x - inX);
+            const distCursor = cursorX !== null ? Math.abs(x - cursorX) : Infinity;
+            if (distMark <= distCursor) {
+                return x >= inX ? "out" : "in";
+            }
+            return "cursor";
+        }
+
+        let closest = "cursor";
+        let minDistance = cursorX !== null ? Math.abs(x - cursorX) : Infinity;
+
+        if (inX !== null) {
+            const distIn = Math.abs(x - inX);
+            if (distIn < minDistance) {
+                minDistance = distIn;
+                closest = "in";
+            }
+        }
+
+        if (outX !== null) {
+            const distOut = Math.abs(x - outX);
+            if (distOut < minDistance) {
+                minDistance = distOut;
+                closest = "out";
+            }
+        }
+
+        return closest;
+    }
+
     function seekToDOMPixel(x) {
         if (typeof min !== "number" || typeof max !== "number" || !(max > min)) {
             return;
@@ -294,21 +338,22 @@ export function SeekBar(canvas) {
         that.repaint();
     }
 
-    function onTouchMove(e) {
-        seekToDOMPixel(e.touches[0].pageX - getCanvasOffsetLeft());
-    }
-
     function onTouchStart(e) {
         e.preventDefault();
 
-        const domX = e.touches[0].pageX - getCanvasOffsetLeft();
-        const grabbed = markAt(domX);
+        if (!e.touches || e.touches.length === 0) {
+            return;
+        }
 
-        if (grabbed) {
-            markDragMode = grabbed;
+        const domX = e.touches[0].pageX - getCanvasOffsetLeft();
+        const closest = getClosestBar(domX);
+
+        if (closest === "in" || closest === "out") {
+            markDragMode = closest;
+            dragMarkToDOMPixel(closest, domX);
 
             function onMarkTouchMove(e) {
-                if (markDragMode) {
+                if (markDragMode && e.touches && e.touches.length > 0) {
                     dragMarkToDOMPixel(markDragMode, e.touches[0].pageX - getCanvasOffsetLeft());
                 }
             }
@@ -328,16 +373,25 @@ export function SeekBar(canvas) {
             return;
         }
 
+        // Red cursor is closest or only active bar
+        cursorDragMode = true;
         seekToDOMPixel(domX);
-        document.body.addEventListener("touchmove", onTouchMove);
+
+        function onCursorTouchMove(e) {
+            if (cursorDragMode && e.touches && e.touches.length > 0) {
+                seekToDOMPixel(e.touches[0].pageX - getCanvasOffsetLeft());
+            }
+        }
 
         function onTouchEnd() {
-            document.body.removeEventListener("touchmove", onTouchMove);
+            cursorDragMode = null;
+            document.body.removeEventListener("touchmove", onCursorTouchMove);
             document.body.removeEventListener("touchend", onTouchEnd);
             document.body.removeEventListener("touchcancel", onTouchEnd);
             cancelTouchDrag = null;
         }
         cancelTouchDrag = onTouchEnd;
+        document.body.addEventListener("touchmove", onCursorTouchMove);
         document.body.addEventListener("touchend", onTouchEnd);
         document.body.addEventListener("touchcancel", onTouchEnd);
     }
