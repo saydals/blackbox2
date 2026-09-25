@@ -43,7 +43,7 @@
 
                 <!-- Y-axis preset -->
                 <div class="fft-field" title="Set the Y-axis subdivision step based on the vibration magnitude">
-                    <span class="fft-label">Y-axis</span>
+                    <span class="fft-label">Y</span>
                     <select v-model="yScalePreset" class="fft-select">
                         <option value="auto">Auto ({{ yAxisStep }}°)</option>
                         <option value="0.01">0.01°</option>
@@ -71,15 +71,17 @@
                 </div>
 
                 <!-- Max frequency range dropdown -->
-                <select v-model.number="maxFreqRange" class="fft-select">
-                    <option :value="250">250Hz</option>
-                    <option :value="500">500Hz</option>
-                    <option :value="1000">1000Hz</option>
-                </select>
+                <div class="fft-freq-range">
+                    <select v-model.number="maxFreqRange" class="fft-select">
+                        <option :value="250">250Hz</option>
+                        <option :value="500">500Hz</option>
+                        <option :value="1000">1000Hz</option>
+                    </select>
+                </div>
 
                 <!-- Skip Hz -->
                 <div class="fft-field" title="Sets the X-axis zero point (start frequency). Raise it to hide excessive low-frequency vibration below 25Hz.">
-                    <span class="fft-label">Skip Hz</span>
+                    <span class="fft-label">Skip</span>
                     <select v-model.number="skipHz" class="fft-select">
                         <option v-for="v in 11" :key="(v - 1) * 5" :value="(v - 1) * 5">{{ (v - 1) * 5 }}Hz</option>
                     </select>
@@ -1351,5 +1353,19 @@ watch(
     text-overflow: ellipsis;
     max-width: 60%;
     text-align: right;
+}
+
+/* Compact FFT header on low-resolution viewports: hide the frequency
+ * range dropdown and scale the control bar to 80% so it fits narrower
+ * screens while keeping the same anchor point. */
+@media (max-width: 675px), (max-height: 500px) {
+    .fft-freq-range {
+        display: none;
+    }
+
+    .fft-header {
+        transform: scale(0.8);
+        transform-origin: top left;
+    }
 }
 </style>
