@@ -755,14 +755,10 @@
 }
 
 /*
- * 3D BLACKBOX overlay — replaces ONLY the graph area (#log-graph) while open.
- * It is an in-flow flex item of .graph-row (NOT absolute/inset) that takes
- * exactly the slot the hidden .log-graph (v-show, canvases stay mounted
- * behind) occupied: `flex: 1 1 0` mirrors .log-graph's `flex-grow: 1`, and
- * align-items: stretch (flex default) gives it the same full row height.
- * LegendPanel (.log-graph-config) keeps its fixed flex-basis
- * (200px + --legend-value-reserve), so its size NEVER changes while the 3D
- * page is open.
+ * 3D BLACKBOX overlay — replaces the entire graph-row area while open.
+ * Legend (.log-graph-config) and the seek-bar timeline (.log-seek-bar) are
+ * both hidden via the .blackbox3d-open root class so the 3D panel fills
+ * the full width and height of the row.
  */
 .blackbox-3d-overlay {
     flex: 1 1 0;
@@ -958,16 +954,21 @@
 }
 
 /*
- * Legend panel vs FFT page on narrow phones (portrait only — landscape has
- * the width to keep both). The Legend keeps its fixed flex-basis
- * (200px + --legend-value-reserve) inside .graph-row, so on a ~390px phone
- * portrait viewport the FFT spectrum would be squeezed into a ~130px sliver
- * and its (already compacted) header wraps again. The legend's Motors/Gyros
- * list is meaningless on the FFT page, so it steps aside entirely and the
- * spectrum takes the full row width. Desktop/tablet/landscape: unchanged.
+ * 3D BLACKBOX open: hide the Legend panel and the seek-bar timeline so the
+ * 3D overlay fills the entire graph-row area edge to edge.
  */
-@media (max-width: 675px) {
-    .blackbox-viewer-root.fft-open .log-graph-config {
-        display: none;
-    }
+.blackbox-viewer-root.blackbox3d-open .log-graph-config {
+    display: none;
+}
+.blackbox-viewer-root.blackbox3d-open .log-seek-bar {
+    display: none !important;
+}
+
+/*
+ * FFT VIBRATION open: always hide the Legend panel so the spectrum panel
+ * fills the full graph-row width on every screen size (previously the legend
+ * was hidden only below 675 px — a narrow phone breakpoint).
+ */
+.blackbox-viewer-root.fft-open .log-graph-config {
+    display: none;
 }

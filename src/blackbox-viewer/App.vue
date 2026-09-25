@@ -61,11 +61,10 @@
                         </div>
                     </div>
                     <div id="screenshot-frame" class="graph-row">
-                        <!-- 3D BLACKBOX replaces ONLY the graph area (#log-graph)
-                            while open — the LegendPanel keeps its normal slot and
-                            size. v-if (not v-show) so the WebGL renderer mounts
-                            only while visible and frees its context on close —
-                            mirroring the configurator tab lifecycle. -->
+                        <!-- 3D BLACKBOX fills the entire graph-row area while open:
+                            the LegendPanel and the seek-bar timeline are hidden via the
+                            .blackbox3d-open root class (main.css). v-if so the WebGL
+                            renderer mounts only while visible and frees its context on close. -->
                         <Blackbox3DPanel
                             v-if="appStore.blackbox3DOpen"
                             class="blackbox-3d-overlay"
@@ -108,9 +107,8 @@
                             <div id="mapContainer" class="map-container"></div>
                             <canvas width="0" height="0" id="stickCanvas"></canvas>
                         </div>
-                        <!-- Legend stays mounted and visible at its normal size
-                            while the 3D BLACKBOX page is open — the 3D panel
-                            occupies only the #log-graph flex slot. -->
+                        <!-- Legend is hidden via .blackbox3d-open / .fft-open CSS classes
+                            while the 3D page or FFT page is open. -->
                         <LegendPanel />
                         <div id="mouseNotification" class="mouseNotification"></div>
                     </div>
@@ -211,6 +209,9 @@ watchEffect(() => {
     // while the FFT page is open — on a phone the legend's fixed flex-basis
     // starves the spectrum canvas down to a narrow sliver.
     cl.toggle("fft-open", appStore.fftOpen);
+    // 3D page marker class: hides the Legend panel and the seek-bar timeline
+    // so the 3D panel can fill the entire graph-row area.
+    cl.toggle("blackbox3d-open", appStore.blackbox3DOpen);
     cl.toggle("video-hidden", !appStore.viewVideo);
     cl.toggle("has-expo-override", !!settingsStore.userSettings.graphExpoOverride);
     cl.toggle("has-smoothing-override", !!settingsStore.userSettings.graphSmoothOverride);
