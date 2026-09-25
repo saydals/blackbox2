@@ -13,10 +13,10 @@
 
     <!-- Legend sidebar -->
     <div v-show="graphStore.legendVisible" class="log-graph-config">
-        <!-- Compact header (<=840px) -->
+        <!-- Compact header (<=840px or height<=500px) -->
         <div v-if="isCompact" class="flex items-center justify-between mb-2">
-            <h2 class="text-xs font-semibold m-0">{{ graphStore.legendTitle }}</h2>
-            <div class="flex items-center gap-1">
+            <h2 class="text-[15px] font-semibold m-0">{{ graphStore.legendTitle }}</h2>
+            <div class="flex items-center gap-2">
                 <UButton
                     variant="ghost"
                     color="neutral"
@@ -24,7 +24,7 @@
                     title="Graph setup"
                     @click="openGraphConfig"
                 >
-                    <UIcon name="i-lucide-settings" class="size-3.5" />
+                    <UIcon name="i-lucide-settings" class="size-[18px]" />
                 </UButton>
                 <UButton
                     variant="ghost"
@@ -34,7 +34,7 @@
                     title="Expo On/Off"
                     @click="toggleExpo"
                 >
-                    <svg width="16" height="16" viewBox="0 0 8.467 8.467">
+                    <svg width="18" height="18" viewBox="0 0 8.467 8.467">
                         <path
                             fill="none"
                             stroke="currentColor"
