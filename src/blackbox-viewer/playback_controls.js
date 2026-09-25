@@ -137,7 +137,17 @@ export function updateCanvasSize() {
         }
 
         graphStore.graph.resize(width, height);
-        graphStore.seekBar.resize(canvas.offsetWidth, 50);
+        // The timeline height is layout-driven (CSS): 50px on wide viewports,
+        // halved by the compact low-resolution media query in main.css. Measure
+        // the real canvas box instead of hardcoding 50 so the backing store —
+        // and, through resize(), the noise-severity font — tracks the true
+        // timeline height. Falls back to the legacy fixed 50px when the
+        // element is not measurable (e.g. display:none before a log opens).
+        const seekBarCanvas = document.getElementById("seekbarCanvas");
+        graphStore.seekBar.resize(
+            (seekBarCanvas && seekBarCanvas.offsetWidth) || canvas.offsetWidth,
+            (seekBarCanvas && seekBarCanvas.offsetHeight) || 50,
+        );
         if (logStore.flightLog.hasGpsData()) {
             graphStore.mapGrapher.resize(width, height);
         }

@@ -370,7 +370,12 @@ export function SeekBar(canvas) {
         BAR_INSET = CURSOR_WIDTH;
         MARK_LINE_WIDTH = 8 * ratio;
         MARK_GRAB_THRESHOLD = 8 * ratio;
-        SEVERITY_FONT_SIZE = 36 * ratio;
+        // Severity score badge (noise modes) font size, DPR-scaled. 36px at the
+        // full-size 50px timeline; scales down with the timeline height so the
+        // number stays inside the halved compact phone timeline (26px -> ~19px)
+        // instead of being clipped. 0.72 * 50px == 36px keeps the wide-screen
+        // size exactly as before.
+        SEVERITY_FONT_SIZE = Math.min(36 * ratio, height * ratio * 0.72);
 
         invalidateBackground();
 

@@ -210,6 +210,10 @@ watchEffect(() => {
     cl.toggle("has-map", graphStore.hasMap);
     cl.toggle("has-marker", graphStore.hasMarker);
     cl.toggle("is-fullscreen", graphStore.isFullscreen);
+    // FFT page marker class: compact media queries hide the Legend panel
+    // while the FFT page is open — on a phone the legend's fixed flex-basis
+    // starves the spectrum canvas down to a narrow sliver.
+    cl.toggle("fft-open", appStore.fftOpen);
     cl.toggle("video-hidden", !appStore.viewVideo);
     cl.toggle("has-expo-override", !!settingsStore.userSettings.graphExpoOverride);
     cl.toggle("has-smoothing-override", !!settingsStore.userSettings.graphSmoothOverride);
