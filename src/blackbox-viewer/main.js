@@ -11,7 +11,10 @@ import { stringTimetoMsec, validate, mouseNotification } from "./tools.js";
 import { restorePenDefaults, changePenSmoothing, changePenZoom, changePenExpo } from "./pen_adjustment.js";
 import { createKeydownHandler, createDropdownSpaceGuard } from "./keyboard_handler.js";
 import { attachFullscreenTouchControls } from "./touch_fullscreen_controls.js";
-import { isAndroid } from "@/js/utils/checkCompatibility.js";
+import { isAndroid, isTauriAndroid } from "@/js/utils/checkCompatibility.js";
+
+/** True on every Android host: Capacitor APK and Tauri Android APK alike. */
+const isAndroidDevice = () => isAndroid() || isTauriAndroid();
 import { upgradeWorkspaceFormat, saveWorkspaces, loadWorkspaces } from "./workspace_io.js";
 import { exportCsv, exportGpx, exportSpectrumToCsv } from "./export_utils.js";
 import { cancelActiveVideoExport } from "./video_export.js";
@@ -183,7 +186,7 @@ export function bootstrapViewer() {
         // A log opened while Android fullscreen is already on must hand touch
         // control straight to the fullscreen gesture layer — the watch below
         // only runs on toggle, not on graph (re)creation.
-        graph.touchSeekEnabled = !(graphStore.isFullscreen && isAndroid());
+        graph.touchSeekEnabled = !(graphStore.isFullscreen && isAndroidDevice());
 
         setVideoInTime(false);
         setVideoOutTime(false);
@@ -837,9 +840,9 @@ export function bootstrapViewer() {
     // are hidden (the .is-fullscreen rules in main.css) and an Android APK has
     // no keyboard, so play/pause, rate and zoom become unreachable. Attach the
     // touch gesture layer (3-zone tap / pinch zoom / drag pan) for
-    // Capacitor-Android builds; every other host — including Android web
-    // browsers — keeps the legacy single-finger drag-to-seek only.
-    if (isAndroid()) {
+    // Capacitor-Android and Tauri-Android APK builds; every other host —
+    // including Android web browsers — keeps the legacy drag-to-seek only.
+    if (isAndroidDevice()) {
         const showTouchNote = (message, delay) => {
             mouseNotification.show(
                 document.getElementById("log-graph"),
