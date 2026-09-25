@@ -121,8 +121,6 @@
                     <SeekBarToolbar />
                 </div>
 
-                <StatusBar class="vue-statusbar" @goto-bookmark="onGotoBookmark" />
-
                 <FieldValuesPanel />
                 <ConfigurationPanel />
 
@@ -172,7 +170,6 @@ import Blackbox3DButton from "./components/Blackbox3DButton.vue";
 import Blackbox3DPanel from "./components/Blackbox3DPanel.vue";
 import FftButton from "./components/FftButton.vue";
 import FftPanel from "./components/FftPanel.vue";
-import StatusBar from "./components/StatusBar.vue";
 import KeysDialog from "./components/KeysDialog.vue";
 import UserSettingsDialog from "./components/UserSettingsDialog.vue";
 import GraphConfigDialog from "./components/GraphConfigDialog.vue";
@@ -365,10 +362,6 @@ function onSaveWorkspace(id, title) {
 
 function onRenameWorkspace(id, title) {
     workspaceStore.renameWorkspace?.(id, title);
-}
-
-function onGotoBookmark(index) {
-    workspaceStore.gotoBookmark?.(index + 1);
 }
 
 // Analysis window selection: the middle 3/5 of the timeline — the first 1/5

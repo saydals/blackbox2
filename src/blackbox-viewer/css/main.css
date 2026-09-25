@@ -29,7 +29,7 @@
      * below override these values.
      */
     --toolbar-height: 76px; /* .video-top-controls height (64px ≤1020px) */
-    --statusbar-height: 1.5rem; /* .vue-statusbar height (24px) */
+    --statusbar-height: 0.75rem; /* half-height bottom whitespace (was 1.5rem/24px for .vue-statusbar) */
     --seekbar-height: calc(50px + 0.5em); /* timeline canvas + its top margin */
 
     /*
@@ -590,8 +590,8 @@
  *
  *   1. The top header strip (.video-top-controls) is hidden.
  *   2. The bottom timeline strip (.log-seek-bar) is hidden.
- *   3. The bottom status strip (.vue-statusbar) is hidden too — true
- *      full-height graph + Legend. Loop/bookmark info is traded for ~24px
+ *   3. The bottom timeline strip (.log-seek-bar) is hidden too — true
+ *      full-height graph + Legend. Timeline/seekbar info is traded for ~58px
  *      more graph height.
  *   4. .graph-row stretches from the top safe-area inset to the bottom
  *      safe-area inset — i.e. it absorbs the toolbar, timeline AND status
@@ -612,12 +612,6 @@
     display: none;
 }
 
-/* Status bar is also hidden in graph-only fullscreen — true full-height
-   graph + Legend. Loop/bookmark info is traded for ~24px more graph height. */
-.blackbox-viewer-root.is-fullscreen.has-log .vue-statusbar,
-.blackbox-viewer-root.is-fullscreen.has-video .vue-statusbar {
-    display: none;
-}
 
 .blackbox-viewer-root.is-fullscreen.has-log .graph-row,
 .blackbox-viewer-root.is-fullscreen.has-video .graph-row {
@@ -747,7 +741,7 @@
 .blackbox-viewer-root.has-log .log-seek-bar {
     display: block;
     position: fixed;
-    /* Stack directly on top of the 24px status bar. Previously the bottom
+    /* Stack directly on top of the bottom whitespace. Previously the bottom
        clearance was only 0.5em (8px), so the opaque status bar overlapped
        and covered the bottom ~16px of the timeline canvas. */
     bottom: calc(var(--statusbar-height) + var(--safe-area-inset-bottom));
@@ -869,19 +863,7 @@
     display: block;
 }
 
-.blackbox-viewer-root:not(.has-log) .vue-statusbar {
-    display: none;
-}
 
-.vue-statusbar {
-    position: fixed;
-    bottom: var(--safe-area-inset-bottom);
-    width: 100%;
-    /* Below the portal-ed dropdown menus (z-60): the workspace menu extends to
-       the bottom of the screen and its last items (Roll/Pitch Preset) were
-       covered by this bar. */
-    z-index: 55;
-}
 
 .blackbox-viewer-root:not(.has-gps) .view-map,
 .blackbox-viewer-root:not(.has-gps) .map-container {
