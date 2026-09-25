@@ -183,10 +183,7 @@ export function bootstrapViewer() {
             userSettings,
         );
         graphStore.graph = graph;
-        // A log opened while Android fullscreen is already on must hand touch
-        // control straight to the fullscreen gesture layer — the watch below
-        // only runs on toggle, not on graph (re)creation.
-        graph.touchSeekEnabled = !(graphStore.isFullscreen && isAndroidDevice());
+        graph.touchSeekEnabled = !isAndroidDevice();
 
         setVideoInTime(false);
         setVideoOutTime(false);
@@ -891,15 +888,13 @@ export function bootstrapViewer() {
         });
         cleanupFns.push(destroyFullscreenTouchControls);
 
-        // Hand the canvas over to the gesture layer exactly while Android
-        // fullscreen is on; restore the legacy touchseek on exit. Logs opened
-        // while fullscreen is already on are handled in selectLog.
+        // Hand the canvas over to the gesture layer on Android devices.
+        // The gesture layer is always active when a log is loaded,
+        // not just in fullscreen. The legacy touchseek is disabled
+        // on Android since the gesture layer handles all touches.
         const stopFullscreenTouchWatch = watch(
             () => graphStore.isFullscreen,
             (fullscreen) => {
-                if (graph) {
-                    graph.touchSeekEnabled = !fullscreen;
-                }
                 if (fullscreen && logStore.hasLog) {
                     showTouchNote(
                         "Touch right half · 50-65: speed down · 65-85: play/pause · 85-100: speed up<br>Pinch: zoom · drag: pan",

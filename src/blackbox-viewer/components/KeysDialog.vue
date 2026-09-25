@@ -145,7 +145,7 @@ const layout = [
     padding: 0.75rem;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 840px) {
     .keys-grid {
         grid-template-columns: repeat(2, 1fr);
     }

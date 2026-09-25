@@ -57,15 +57,15 @@
                     </select>
                 </div>
 
-                <!-- Head speed RPM: label removed, input box + RPM + est badge preserved -->
-                <div class="fft-field" :title="rpmSourceTip">
-                    <input
-                        v-model="headSpeedInput"
-                        class="fft-input"
-                        type="text"
-                        inputmode="numeric"
-                        @change="onHeadSpeedChange"
-                    />
+<!-- Head speed RPM: label removed, input box + RPM + est badge preserved -->
+                 <div class="fft-field" :title="rpmSourceTip">
+                     <input
+                         v-model="headSpeedInput"
+                         class="fft-input"
+                         type="text"
+                         inputmode="numeric"
+                         readonly
+                     />
                     <span class="fft-label">RPM</span>
                     <span v-if="rpmBadge" class="fft-badge" :class="rpmBadge.cls">{{ rpmBadge.text }}</span>
                 </div>
@@ -181,15 +181,6 @@ const tooltipLeft = computed(() => {
     if (!el || !hoverInfo.value) return "15px";
     return `${Math.min(hoverInfo.value.xPx + 15, el.clientWidth - 190)}px`;
 });
-
-function onHeadSpeedChange() {
-    const digits = headSpeedInput.value.replace(/[^0-9]/g, "").slice(0, 5);
-    const val = digits === "" ? 0 : Math.max(0, Math.min(10000, parseInt(digits, 10)));
-    headSpeedInput.value = String(val);
-    appStore.fftHeadSpeedRpm = val;
-    // A manual edit takes precedence — stop auto-updating from log/estimate
-    rpmSource.value = "manual";
-}
 
 function toggleGyroSource() {
     gyroDataSource.value = gyroDataSource.value === 'raw' ? 'filtered' : 'raw';
@@ -1356,12 +1347,16 @@ watch(
     text-align: right;
 }
 
+.fft-freq-range {
+    margin-right: 1ch;
+}
+
 /* Compact FFT header on low-resolution viewports: hide the frequency
  * range dropdown and scale the control bar to 80% so it fits narrower
  * screens while keeping the same anchor point. */
-@media (max-width: 675px), (max-height: 500px) {
-    .fft-freq-range {
-        display: none;
+ @media (max-width: 840px), (max-height: 500px) {
+     .fft-freq-range {
+         display: none;
     }
 
     .fft-header {

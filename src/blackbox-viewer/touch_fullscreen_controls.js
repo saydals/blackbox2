@@ -1,13 +1,11 @@
 import { GRAPH_MIN_ZOOM, GRAPH_MAX_ZOOM } from "./stores/graph.js";
 
 /**
- * Android fullscreen touch gesture layer for the graph canvas.
+ * Android touch gesture layer for the graph canvas.
  *
- * In graph-only fullscreen the toolbar, the seek bar and the status bar are
- * all hidden (the `.is-fullscreen` rules in main.css) and an Android APK has
- * no keyboard, so nothing can play/pause, change the rate or zoom the graph
- * any more. This module gives the graph canvas a touch gesture set, active
- * only while the graph-only fullscreen is on and a log is loaded:
+ * This module gives the graph canvas a touch gesture set, active
+ * whenever a log is loaded on an Android device (not just in
+ * fullscreen):
  *
  *   Gesture zone — the RIGHT HALF of the canvas only (x >= 50 % of the
  *   width). The left half is reserved for the analyser overlay (#analyser:
@@ -23,14 +21,13 @@ import { GRAPH_MIN_ZOOM, GRAPH_MAX_ZOOM } from "./stores/graph.js";
  *
  * Gesture recognition lives here; every action is a callback supplied by
  * main.js, so playback, rate and zoom run through the exact same pipeline
- * (playback_controls.js → video sync) the hidden toolbar buttons use. In
- * particular the pan callback feeds `graph.onSeek` — the offset formula and
- * the ×2 "seek faster" factor stay identical to the desktop mouse drag.
+ * (playback_controls.js → video sync) the hidden toolbar buttons use.
+ * In particular the pan callback feeds `graph.onSeek` — the offset formula
+ * and the ×2 "seek faster" factor stay identical to the desktop mouse drag.
  *
  * The grapher's own single-finger drag-to-seek handler (grapher.js
- * onTouchStart) must stand down while this layer owns the canvas; main.js
- * flips `graph.touchSeekEnabled` to false for the
- * fullscreen+Android combination and restores it otherwise.
+ * onTouchStart) is disabled on Android since this layer owns all
+ * touch interactions on the right half of the canvas.
  */
 
 /* A touch counts as a tap only while it stays inside this pixel budget and
@@ -80,7 +77,7 @@ export function attachFullscreenTouchControls({ canvas, graphStore, logStore, ac
     let pinchStartZoom = 0;
 
     function active() {
-        return graphStore.isFullscreen && logStore.hasLog && graphStore.graph != null;
+        return logStore.hasLog && graphStore.graph != null;
     }
 
     function pinchDistance(e) {
