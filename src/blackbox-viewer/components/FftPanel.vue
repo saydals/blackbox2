@@ -94,11 +94,20 @@
         <div ref="containerRef" class="fft-canvas-wrap">
             <canvas ref="canvasRef" class="fft-canvas" :class="{ 'has-grab-target': !dragging && hasGrabTarget }" :style="{ cursor: dragging ? 'grabbing' : (hasGrabTarget ? 'grab' : 'crosshair') }" @pointermove="onPointerMove" @pointerleave="onPointerLeave" @pointerdown="onPointerDown" @pointerup="onPointerUp" />
 
-            <!-- Analysis unavailable notice (e.g. selected window < 30s) -->
+        <!-- Analysis unavailable notice (e.g. selected window < 30s) -->
             <div v-if="analysisNotice" class="fft-notice">
                 <UIcon name="i-lucide-shield-alert" class="size-8" />
                 <p>{{ analysisNotice }}</p>
             </div>
+
+            <!-- Current log filename — top-right of the canvas area, same
+                 style as the .graph-filename-overlay in the main graph view
+                 (#9ca3af, 1.25rem, pointer-events: none). -->
+            <div
+                v-if="appStore.logFilename"
+                class="fft-filename-overlay"
+                :title="appStore.logFilename"
+            >{{ appStore.logFilename }}</div>
 
             <!-- Interactive Tooltip Card -->
             <div
@@ -1319,5 +1328,23 @@ watch(
 
 .v-yaw {
     color: #10b981;
+}
+
+/* Current log filename — top-right of the FFT canvas area.
+ * Mirrors .graph-filename-overlay in main.css exactly:
+ * same colour (#9ca3af), same font-size (1.25rem), pointer-events: none. */
+.fft-filename-overlay {
+    position: absolute;
+    top: 6px;
+    right: 10px;
+    font-size: 1.25rem;
+    color: #9ca3af;
+    pointer-events: none;
+    z-index: 5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 60%;
+    text-align: right;
 }
 </style>
