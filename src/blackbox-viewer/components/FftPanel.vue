@@ -1077,9 +1077,6 @@ watch(
     border-bottom: 1px solid var(--border-color, #e5e5e5);
 }
 
-}
-</style>
-
 .fft-controls {
     display: flex;
     flex-wrap: wrap;
@@ -1322,7 +1319,5 @@ watch(
 
 .v-yaw {
     color: #10b981;
-}
-
 }
 </style>
