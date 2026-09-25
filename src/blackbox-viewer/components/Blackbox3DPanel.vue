@@ -1458,7 +1458,7 @@ onBeforeUnmount(() => {
 /* Small-resolution HUD: reduce to roughly half size while staying
  * anchored at the top-right corner. Triggers when the viewport is
  * narrower than 600 px OR shorter than 500 px (landscape phones, etc.). */
-@media (max-width: 600px), (max-height: 500px) {
+@media (max-width: 840px), (max-height: 500px) {
     .b3d-hud {
         top: 5px;
         right: 5px;
