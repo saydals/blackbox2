@@ -987,3 +987,24 @@
 .blackbox-viewer-root.fft-open .log-graph-config {
     display: none;
 }
+
+/*
+ * View overlay panels (Flight Log Header, Field Values, Configuration):
+ * match the graph-row footprint on small screens so they cover both the
+ * central graph area and the Legend panel.
+ */
+.view-overlay {
+    top: 135px;
+    left: 15px;
+    right: 15px;
+    bottom: 80px;
+}
+
+@media (max-width: 840px), (max-height: 500px) {
+    .view-overlay {
+        top: calc(var(--toolbar-height) + 6px + var(--safe-area-inset-top));
+        bottom: calc(var(--statusbar-height) + var(--seekbar-height) + 0.5em + var(--safe-area-inset-bottom));
+        left: 0;
+        right: 0;
+    }
+}

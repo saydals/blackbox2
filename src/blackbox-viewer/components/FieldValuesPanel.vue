@@ -1,7 +1,7 @@
 <template>
     <div
         v-show="graphStore.hasTableOverlay"
-        class="fixed top-[135px] left-[15px] right-[15px] bottom-[80px] flex flex-col bg-default border border-default rounded-lg shadow-lg overflow-hidden"
+        class="fixed flex flex-col bg-default border border-default rounded-lg shadow-lg overflow-hidden view-overlay"
     >
         <div class="flex items-center gap-3 px-4 py-2 border-b border-default shrink-0">
             <h4 class="flex-1 font-semibold">Field Values</h4>
