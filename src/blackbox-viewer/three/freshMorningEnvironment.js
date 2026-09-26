@@ -1,1179 +1,1579 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-const FIELD_SIZE = 30000;
-const FIELD_SEGMENTS = 96;
-const SKY_RADIUS = 20000;
-const WATER_X = 92;
-const WATER_Z = 58;
-const WATER_RADIUS = 18;
-const GRASS_COUNT = 9000;
-const FLOWER_COUNT_PER_SPECIES = 650;
-const TREE_COUNT = 78;
-const CLOUD_COUNT = 18;
-const BUTTERFLY_COUNT = 16;
-const POLLEN_COUNT = 140;
-const WIND_SPEED = 4.8;
-const WIND_DIRECTION = 15;
-const LAYOUT_SCALE = 0.5;
+// ---------------------------------------------------------------------------
+// Fresh morning airfield — Three.js port of the rf3d Babylon.js scene
+// (rf3d/src/scene/createAirfield.ts and friends).
+//
+// The same airfield: a circular grass helipad with a painted "H", rolling
+// terrain with a level apron, distant hills, low-poly vegetation, wooden
+// fences, a windsock and the pilot area. Layout, colours, sizes and the
+// deterministic RNG seed mirror the Babylon original so both viewers show the
+// same field. The scene is metric (1 unit = 1 m) and is added under the world
+// group, so the airfield alignment rotation of Blackbox3DPanel applies to it.
+// ---------------------------------------------------------------------------
 
-function compactCoordinate(value) {
-  return value * LAYOUT_SCALE;
+/** Terrain quad size in metres. */
+export const TERRAIN_SIZE = 1400;
+/** The airfield is completely level inside this radius (m). */
+export const FLAT_RADIUS = 60;
+/** Circular grass helipad radius (m). */
+export const HELIPAD_RADIUS = 15;
+/** Height of the painted "H" on the helipad (m). The model length of the
+ *  helicopter is scaled to half of it (see Blackbox3DPanel.vue). */
+export const HELIPAD_MARK_HEIGHT = 9;
+/** Height of the helipad surface above the terrain (m). It keeps the pad clear
+ *  of the ground plane; the helicopter rests on exactly this height. */
+export const HELIPAD_SURFACE_Y = 0.04;
+
+/**
+ * Deterministic (seeded) PRNG — the layout is identical on every reload.
+ * mulberry32, same as rf3d/src/scene/utils.ts.
+ * @param {number} seed
+ * @returns {() => number} values in [0, 1)
+ */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-function smoothStep(value, min, max) {
-  const t = THREE.MathUtils.clamp((value - min) / (max - min), 0, 1);
+const rand = (rng, min, max) => min + (max - min) * rng();
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const lerp = (a, b, t) => a + (b - a) * t;
+
+function smoothstep(edge0, edge1, x) {
+  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
   return t * t * (3 - 2 * t);
 }
 
-function createSeededRandom(seed) {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) | 0;
-    let value = Math.imul(state ^ (state >>> 15), 1 | state);
-    value ^= value + Math.imul(value ^ (value >>> 7), 61 | value);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+function hash2(ix, iz) {
+  let h = (ix * 374761393 + iz * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/** 2D value noise, result in [-1, 1]. */
+function valueNoise(x, z) {
+  const ix = Math.floor(x);
+  const iz = Math.floor(z);
+  const fx = x - ix;
+  const fz = z - iz;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uz = fz * fz * (3 - 2 * fz);
+  const a = hash2(ix, iz);
+  const b = hash2(ix + 1, iz);
+  const c = hash2(ix, iz + 1);
+  const d = hash2(ix + 1, iz + 1);
+  return lerp(lerp(a, b, ux), lerp(c, d, ux), uz) * 2 - 1;
+}
+
+/** Fractal brownian motion, result roughly in [-1, 1]. */
+function fbm(x, z, octaves = 4) {
+  let amp = 0.5;
+  let freq = 1;
+  let sum = 0;
+  let norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    sum += amp * valueNoise(x * freq + i * 17.17, z * freq - i * 9.3);
+    norm += amp;
+    amp *= 0.5;
+    freq *= 2.03;
+  }
+  return sum / norm;
+}
+
+/**
+ * Terrain height in metres. The terrain mesh, the tree/bush/flower placement
+ * and the fence/hay-bale placement all share this function (rf3d terrain.ts).
+ */
+export function terrainHeight(x, z) {
+  const r = Math.hypot(x, z);
+  const blend = smoothstep(FLAT_RADIUS, 170, r);
+  if (blend <= 0) return 0;
+  let h =
+    5.5 * fbm(x * 0.011 + 3.1, z * 0.011 - 7.7, 3) +
+    1.4 * fbm(x * 0.045 - 1.3, z * 0.045 + 2.2, 2);
+  const far = smoothstep(230, 480, r);
+  h += far * (16 * fbm(x * 0.0055 + 11.2, z * 0.0055 + 5.9, 3) + 5);
+  return blend * h;
+}
+
+// ---------------------------------------------------------------------------
+// Geometry helpers (rf3d/src/scene/meshUtils.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Paints per-vertex colours, driven by the local vertex positions.
+ * @param {THREE.BufferGeometry} geometry
+ * @param {THREE.Color | ((x: number, y: number, z: number) => THREE.Color)} color
+ */
+function paintVertices(geometry, color) {
+  const position = geometry.attributes.position;
+  const array = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i++) {
+    const c =
+      typeof color === "function"
+        ? color(position.getX(i), position.getY(i), position.getZ(i))
+        : color;
+    array[i * 3] = c.r;
+    array[i * 3 + 1] = c.g;
+    array[i * 3 + 2] = c.b;
+  }
+  geometry.setAttribute("color", new THREE.BufferAttribute(array, 3));
+  return geometry;
+}
+
+/**
+ * Paints whole triangles — used for the crisp colour borders of the umbrella
+ * and the hay bale. The geometry is flattened in place (Babylon's
+ * convertToFlatShadedMesh) so triangles no longer share vertices.
+ * @returns {THREE.BufferGeometry} the geometry to keep using
+ */
+function paintFaces(geometry, color) {
+  if (geometry.index) {
+    const flat = geometry.toNonIndexed();
+    for (const name of Object.keys(flat.attributes)) {
+      geometry.setAttribute(name, flat.attributes[name]);
+    }
+    geometry.setIndex(null);
+  }
+  const position = geometry.attributes.position;
+  const array = new Float32Array(position.count * 3);
+  for (let t = 0; t < position.count; t += 3) {
+    const cx =
+      (position.getX(t) + position.getX(t + 1) + position.getX(t + 2)) / 3;
+    const cy =
+      (position.getY(t) + position.getY(t + 1) + position.getY(t + 2)) / 3;
+    const cz =
+      (position.getZ(t) + position.getZ(t + 1) + position.getZ(t + 2)) / 3;
+    const c = typeof color === "function" ? color(cx, cy, cz) : color;
+    for (let i = 0; i < 3; i++) {
+      array[(t + i) * 3] = c.r;
+      array[(t + i) * 3 + 1] = c.g;
+      array[(t + i) * 3 + 2] = c.b;
+    }
+  }
+  geometry.setAttribute("color", new THREE.BufferAttribute(array, 3));
+  return geometry;
+}
+
+/** Dark → light gradient driven by the local Y of a vertex. */
+function shadeByHeight(base, minY, maxY, dark = 0.72, light = 1.12) {
+  return (_x, y) => {
+    const t = clamp((y - minY) / (maxY - minY), 0, 1);
+    const k = dark + (light - dark) * t;
+    return new THREE.Color(
+      Math.min(1, base.r * k),
+      Math.min(1, base.g * k),
+      Math.min(1, base.b * k),
+    );
   };
 }
 
-function disposeResource(resource) {
-  if (!resource) return;
-  if (resource.isTexture) resource.dispose();
-  else if (resource.isMaterial) resource.dispose();
-  else if (resource.isBufferGeometry) resource.dispose();
-  else if (resource.isWebGLRenderTarget) resource.dispose();
+/** Slight random variation of a colour (rf3d jitterColor). */
+function jitterColor(color, rng, amount) {
+  const k = 1 + (rng() * 2 - 1) * amount;
+  const g = 1 + (rng() * 2 - 1) * amount * 0.5;
+  return new THREE.Color(
+    Math.min(1, color.r * k),
+    Math.min(1, color.g * k * g),
+    Math.min(1, color.b * k),
+  );
 }
 
-function createColorTexture(width, height, draw, random) {
+/**
+ * Merges parts into a single, flat-shaded, vertex-coloured geometry. Parts
+ * without a colour attribute default to white, and any index buffer is dropped
+ * so the merged normals come out per-triangle (low-poly look).
+ * @param {THREE.BufferGeometry[]} parts
+ * @returns {THREE.BufferGeometry}
+ */
+function mergeParts(parts) {
+  const prepared = parts.map((part) => {
+    const flat = part.index ? part.toNonIndexed() : part.clone();
+    if (!flat.attributes.color) {
+      const count = flat.attributes.position.count;
+      flat.setAttribute(
+        "color",
+        new THREE.BufferAttribute(new Float32Array(count * 3).fill(1), 3),
+      );
+    }
+    return flat;
+  });
+  const merged = mergeGeometries(prepared, false);
+  merged.computeVertexNormals();
+  return merged;
+}
+
+/**
+ * Cheap vertex-colour material — Babylon's StandardMaterial equivalent. The
+ * tiny specular of the Babylon original is dropped (Babylon's specularColor
+ * values are 0…0.06, i.e. invisible), `emissive` is kept for the clouds.
+ */
+function vertexColorMaterial({ emissive = 0, doubleSided = false } = {}) {
+  return new THREE.MeshLambertMaterial({
+    vertexColors: true,
+    emissive:
+      emissive > 0
+        ? new THREE.Color(emissive, emissive, emissive)
+        : new THREE.Color(0, 0, 0),
+    side: doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+    flatShading: false,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Canvas textures (rf3d/src/scene/textures.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Draws a square canvas texture.
+ * @param {number} size texture size in pixels (power of two)
+ * @param {boolean} wrap tile the texture instead of clamping to its edge
+ * @param {(ctx: CanvasRenderingContext2D, size: number) => void} draw
+ * @returns {THREE.CanvasTexture}
+ */
+function createCanvasTexture(size, wrap, draw) {
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  draw(context, width, height, random);
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  draw(ctx, size);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
-  texture.needsUpdate = true;
+  texture.wrapS = wrap ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  texture.wrapT = wrap ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  texture.anisotropy = 8;
   return texture;
 }
 
-function createGrassGeometry() {
-  const positions = [];
-  const normals = [];
-  const angles = [0, Math.PI / 3, (Math.PI * 2) / 3];
-  const addTriangle = (a, b, c) => {
-    positions.push(...a, ...b, ...c);
-    for (let i = 0; i < 3; i++) normals.push(0, 1, 0);
-  };
-  for (const angle of angles) {
-    const c = Math.cos(angle);
-    const s = Math.sin(angle);
-    const wBottom = 0.11;
-    const wMid = 0.08;
-    const hMid = 0.32;
-    const hTop = 0.72;
-    const lean = 0.08;
-    const p0 = [-wBottom * c, 0, -wBottom * s];
-    const p1 = [wBottom * c, 0, wBottom * s];
-    const p2 = [-wMid * c + lean * s, hMid, -wMid * s - lean * c];
-    const p3 = [wMid * c + lean * s, hMid, wMid * s - lean * c];
-    const p4 = [lean * 2.3 * s, hTop, -lean * 2.3 * c];
-    addTriangle(p0, p1, p2);
-    addTriangle(p1, p3, p2);
-    addTriangle(p2, p3, p4);
+/**
+ * Draws a lot of short grass strokes. With `tile` every stroke is also drawn
+ * on the wrapped positions so the texture tiles without a visible seam.
+ */
+function drawBlades(ctx, size, rng, count, options) {
+  const offsets = options.tile ? [-size, 0, size] : [0];
+  ctx.lineCap = "round";
+  for (let i = 0; i < count; i++) {
+    const x = rng() * size;
+    const y = rng() * size;
+    const len = rand(rng, options.len[0], options.len[1]);
+    const angle = -Math.PI / 2 + rand(rng, -0.7, 0.7);
+    const dx = Math.cos(angle) * len;
+    const dy = Math.sin(angle) * len;
+    ctx.strokeStyle = `hsl(${rand(rng, options.hue[0], options.hue[1])}, ${rand(rng, options.sat[0], options.sat[1])}%, ${rand(rng, options.light[0], options.light[1])}%)`;
+    ctx.lineWidth = rand(rng, options.width[0], options.width[1]);
+    for (const ox of offsets) {
+      for (const oy of offsets) {
+        const sx = x + ox;
+        const sy = y + oy;
+        if (sx < -len || sx > size + len || sy < -len || sy > size + len) {
+          continue;
+        }
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + dx, sy + dy);
+        ctx.stroke();
+      }
+    }
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(positions, 3),
-  );
-  geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
-  geometry.computeBoundingSphere();
-  return geometry;
 }
 
-function createFlowerGeometry() {
-  const positions = [];
-  const normals = [];
-  const addTriangle = (a, b, c) => {
-    positions.push(...a, ...b, ...c);
-    for (let i = 0; i < 3; i++) normals.push(0, 1, 0);
-  };
-  const stemHeight = 0.58;
-  addTriangle([-0.018, 0, 0], [0.018, 0, 0], [-0.018, stemHeight, 0]);
-  addTriangle([0.018, 0, 0], [0.018, stemHeight, 0], [-0.018, stemHeight, 0]);
-  for (let i = 0; i < 6; i++) {
-    const a0 = (i / 6) * Math.PI * 2;
-    const a1 = ((i + 0.72) / 6) * Math.PI * 2;
-    const am = (a0 + a1) * 0.5;
-    const inner = [0, stemHeight + 0.03, 0];
-    const left = [Math.cos(a0) * 0.2, stemHeight + 0.07, Math.sin(a0) * 0.2];
-    const right = [Math.cos(a1) * 0.2, stemHeight + 0.07, Math.sin(a1) * 0.2];
-    const tip = [Math.cos(am) * 0.25, stemHeight + 0.1, Math.sin(am) * 0.25];
-    addTriangle(inner, left, tip);
-    addTriangle(inner, tip, right);
+/** Tiling field grass. */
+function drawGrass(ctx, size) {
+  const rng = mulberry32(1234);
+  ctx.fillStyle = "hsl(103, 42%, 31%)";
+  ctx.fillRect(0, 0, size, size);
+
+  // Soft patches, repeated on the wrapped positions so they tile too.
+  for (let i = 0; i < 28; i++) {
+    const x = rng() * size;
+    const y = rng() * size;
+    const r = rand(rng, size * 0.12, size * 0.3);
+    const light = rand(rng, 24, 40);
+    const hue = rand(rng, 90, 116);
+    for (const ox of [-size, 0, size]) {
+      for (const oy of [-size, 0, size]) {
+        const g = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        g.addColorStop(0, `hsla(${hue}, 45%, ${light}%, 0.55)`);
+        g.addColorStop(1, `hsla(${hue}, 45%, ${light}%, 0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+      }
+    }
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(positions, 3),
+
+  drawBlades(ctx, size, rng, 9000, {
+    hue: [84, 126],
+    sat: [38, 60],
+    light: [24, 46],
+    len: [5, 14],
+    width: [0.8, 1.8],
+    tile: true,
+  });
+  drawBlades(ctx, size, rng, 1400, {
+    hue: [70, 100],
+    sat: [45, 65],
+    light: [46, 58],
+    len: [3, 8],
+    width: [0.6, 1.2],
+    tile: true,
+  });
+}
+
+/** Circular helipad: mown grass, white rings and the big "H". */
+function drawHelipad(ctx, size) {
+  const rng = mulberry32(777);
+  const ppm = size / (HELIPAD_RADIUS * 2); // pixels per metre
+  const c = size / 2;
+
+  ctx.fillStyle = "hsl(98, 48%, 40%)";
+  ctx.fillRect(0, 0, size, size);
+
+  // Mower stripes.
+  const stripes = 12;
+  const stripeWidth = size / stripes;
+  for (let i = 0; i < stripes; i++) {
+    ctx.fillStyle = i % 2 === 0 ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
+    ctx.fillRect(i * stripeWidth, 0, stripeWidth + 1, size);
+  }
+
+  drawBlades(ctx, size, rng, 16000, {
+    hue: [88, 118],
+    sat: [42, 62],
+    light: [30, 50],
+    len: [3, 8],
+    width: [0.7, 1.4],
+    tile: false,
+  });
+
+  // White paint: outer ring and TLOF ring.
+  ctx.lineCap = "butt";
+  ctx.strokeStyle = "rgba(255,255,255,0.94)";
+  ctx.lineWidth = 0.7 * ppm;
+  ctx.beginPath();
+  ctx.arc(c, c, HELIPAD_RADIUS * ppm - ctx.lineWidth / 2 - 1, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.lineWidth = 0.35 * ppm;
+  ctx.beginPath();
+  ctx.arc(c, c, 7.5 * ppm, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // The big "H" — 9 m tall (HELIPAD_MARK_HEIGHT), 6 m wide, 1.5 m bars.
+  ctx.fillStyle = "rgba(255,255,255,0.95)";
+  const markHeight = HELIPAD_MARK_HEIGHT * ppm;
+  const markWidth = 6 * ppm;
+  const bar = 1.5 * ppm;
+  ctx.fillRect(c - markWidth / 2, c - markHeight / 2, bar, markHeight);
+  ctx.fillRect(c + markWidth / 2 - bar, c - markHeight / 2, bar, markHeight);
+  ctx.fillRect(c - markWidth / 2 + bar, c - bar / 2, markWidth - 2 * bar, bar);
+
+  // A little wear: grass showing through the paint.
+  ctx.globalAlpha = 0.28;
+  drawBlades(ctx, size, rng, 2500, {
+    hue: [90, 115],
+    sat: [40, 55],
+    light: [34, 48],
+    len: [2, 5],
+    width: [0.6, 1.0],
+    tile: false,
+  });
+  ctx.globalAlpha = 1;
+}
+
+/** Tiling gravel for the pilot apron and the path to the pad. */
+function drawGravel(ctx, size) {
+  const rng = mulberry32(4242);
+  ctx.fillStyle = "hsl(32, 10%, 60%)";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 2600; i++) {
+    const x = rng() * size;
+    const y = rng() * size;
+    const r = rand(rng, 1, 4);
+    const ry = r * rand(rng, 0.6, 1);
+    const rot = rng() * Math.PI;
+    ctx.fillStyle = `hsl(${rand(rng, 20, 45)}, ${rand(rng, 6, 20)}%, ${rand(rng, 40, 78)}%)`;
+    for (const ox of [-size, 0, size]) {
+      for (const oy of [-size, 0, size]) {
+        const sx = x + ox;
+        const sy = y + oy;
+        if (sx < -r * 2 || sx > size + r * 2 || sy < -r * 2 || sy > size + r * 2) {
+          continue;
+        }
+        ctx.beginPath();
+        ctx.ellipse(sx, sy, r, ry, rot, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+}
+
+/**
+ * @returns {{grass: THREE.CanvasTexture, helipad: THREE.CanvasTexture, gravel: THREE.CanvasTexture}}
+ */
+function createAirfieldTextures() {
+  return {
+    grass: createCanvasTexture(512, true, drawGrass),
+    helipad: createCanvasTexture(1024, false, drawHelipad),
+    gravel: createCanvasTexture(256, true, drawGravel),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Sky and distant hills (rf3d/src/scene/sky.ts, terrain.ts)
+// ---------------------------------------------------------------------------
+
+/** Sun direction — rf3d createAirfield.ts, normalised. */
+export const SUN_DIRECTION = new THREE.Vector3(0.55, 0.72, -0.42).normalize();
+/** Sky gradient of rf3d (zenith / horizon / nadir + sun tint). */
+const SKY_ZENITH = new THREE.Color(0.27, 0.5, 0.9);
+const SKY_HORIZON = new THREE.Color(0.8, 0.88, 0.96);
+const SKY_NADIR = new THREE.Color(0.62, 0.72, 0.8);
+const SKY_SUN_TINT = new THREE.Color(1.0, 0.92, 0.7);
+/** Sky dome radius (m) — the dome is re-centred on the camera every frame. */
+const SKY_RADIUS = 20000;
+
+/**
+ * Sky dome: the vertex-colour gradient of the Babylon original, painted in a
+ * fragment shader instead so the sun glow and the sun disc stay smooth. The
+ * glow weights (0.3·d⁶ + 0.55·d⁴⁸) and the sun tint are taken from rf3d's
+ * createSky(); the additive sun billboard becomes the disc term below.
+ * @returns {THREE.Mesh}
+ */
+function createSkyDome() {
+  const geometry = new THREE.SphereGeometry(SKY_RADIUS, 48, 32);
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uSunDir: { value: SUN_DIRECTION.clone() },
+      uZenith: { value: SKY_ZENITH.clone() },
+      uHorizon: { value: SKY_HORIZON.clone() },
+      uNadir: { value: SKY_NADIR.clone() },
+      uSunTint: { value: SKY_SUN_TINT.clone() },
+    },
+    vertexShader: `
+      varying vec3 vDirection;
+
+      void main() {
+        vDirection = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uSunDir;
+      uniform vec3 uZenith;
+      uniform vec3 uHorizon;
+      uniform vec3 uNadir;
+      uniform vec3 uSunTint;
+
+      varying vec3 vDirection;
+
+      void main() {
+        vec3 dir = normalize(vDirection);
+        vec3 sky = mix(uHorizon, uNadir, clamp(-dir.y * 4.0, 0.0, 1.0));
+        if (dir.y >= 0.0) {
+          sky = mix(uHorizon, uZenith, pow(clamp(dir.y, 0.0, 1.0), 0.6));
+        }
+        float d = max(0.0, dot(dir, uSunDir));
+        vec3 color = min(vec3(1.0), sky + uSunTint * (0.3 * pow(d, 6.0) + 0.55 * pow(d, 48.0)));
+        color = mix(color, vec3(1.0, 0.99, 0.96), smoothstep(0.9975, 0.9985, d));
+        gl_FragColor = vec4(color, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }
+    `,
+    side: THREE.BackSide,
+    depthTest: false,
+    depthWrite: false,
+    fog: false,
+  });
+  const dome = new THREE.Mesh(geometry, material);
+  dome.renderOrder = -1000;
+  dome.frustumCulled = false;
+  dome.matrixAutoUpdate = true;
+  return dome;
+}
+
+/**
+ * Silhouette hills that fill the horizon (they fade into the fog).
+ * @param {() => number} rng
+ * @returns {THREE.Mesh}
+ */
+function createDistantHills(rng) {
+  const count = 14;
+  const parts = [];
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + rand(rng, -0.15, 0.15);
+    const distance = rand(rng, 600, 700);
+    const hill = new THREE.SphereGeometry(1, 9, 7);
+    hill.scale(
+      rand(rng, 150, 300),
+      rand(rng, 45, 95),
+      rand(rng, 130, 240),
+    );
+    hill.rotateY(rng() * Math.PI);
+    hill.translate(
+      Math.cos(angle) * distance,
+      -12,
+      Math.sin(angle) * distance,
+    );
+    parts.push(hill);
+  }
+  const hills = mergeParts(parts);
+  paintVertices(hills, (_x, y) =>
+    new THREE.Color(0.36, 0.5, 0.42).lerp(
+      new THREE.Color(0.5, 0.64, 0.5),
+      smoothstep(-5, 70, y),
+    ),
   );
-  geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  const material = vertexColorMaterial();
+  const mesh = new THREE.Mesh(hills, material);
+  mesh.matrixAutoUpdate = false;
+  return mesh;
+}
+
+// ---------------------------------------------------------------------------
+// Terrain and helipad (rf3d/src/scene/terrain.ts, helipad.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rolling terrain with baked vertex colours: a mottled green field that turns
+ * into golden crop fields further out. The texture tiles every 11 m.
+ * @param {THREE.Texture} grassTexture
+ * @returns {THREE.Mesh}
+ */
+function createTerrain(grassTexture) {
+  const geometry = new THREE.PlaneGeometry(
+    TERRAIN_SIZE,
+    TERRAIN_SIZE,
+    220,
+    220,
+  );
+  geometry.rotateX(-Math.PI / 2); // XY plane → XZ ground plane
+  const position = geometry.attributes.position;
+  const colors = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i++) {
+    const x = position.getX(i);
+    const z = position.getZ(i);
+    position.setY(i, terrainHeight(x, z));
+
+    const r = Math.hypot(x, z);
+    const patch = fbm(x * 0.03 + 5, z * 0.03 + 1, 3);
+    const fields = fbm(x * 0.0045 - 8, z * 0.0045 + 3, 2);
+    const v = 0.92 + 0.16 * patch;
+    const wheat = smoothstep(0.12, 0.42, fields) * smoothstep(90, 150, r);
+    colors[i * 3] = lerp(v, v * 1.45, wheat);
+    colors[i * 3 + 1] = lerp(v, v * 1.22, wheat);
+    colors[i * 3 + 2] = lerp(v, v * 0.62, wheat);
+  }
+  position.needsUpdate = true;
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
-  return geometry;
+
+  grassTexture.repeat.set(TERRAIN_SIZE / 11, TERRAIN_SIZE / 11);
+  const material = new THREE.MeshLambertMaterial({
+    map: grassTexture,
+    vertexColors: true,
+  });
+  const terrain = new THREE.Mesh(geometry, material);
+  terrain.receiveShadow = true;
+  terrain.matrixAutoUpdate = false;
+  return terrain;
+}
+
+/**
+ * Circular grass helipad with the painted "H". The disc carries the pad
+ * texture 1:1 (texture edge = HELIPAD_RADIUS), so the painted mark keeps its
+ * real-world 9 m height.
+ * @param {THREE.Texture} helipadTexture
+ * @returns {THREE.Mesh}
+ */
+function createHelipad(helipadTexture) {
+  const geometry = new THREE.CircleGeometry(HELIPAD_RADIUS, 96);
+  geometry.rotateX(-Math.PI / 2);
+  const material = new THREE.MeshLambertMaterial({ map: helipadTexture });
+  const pad = new THREE.Mesh(geometry, material);
+  pad.position.y = HELIPAD_SURFACE_Y; // keep clear of the terrain (z-fighting)
+  pad.receiveShadow = true;
+  return pad;
+}
+
+// ---------------------------------------------------------------------------
+// Clouds (rf3d/src/scene/sky.ts, createClouds)
+// ---------------------------------------------------------------------------
+
+/** Clouds wrap around the field inside this radius (m). */
+const CLOUD_BOUND = 720;
+
+/**
+ * Low-poly cumulus clouds: three variants built from overlapping spheres,
+ * placed as instances and slowly blown along +X.
+ * @param {() => number} rng
+ * @param {number} count
+ * @returns {{meshes: THREE.InstancedMesh[], update(dt: number): void}}
+ */
+function createClouds(rng, count) {
+  const material = vertexColorMaterial({ emissive: 0.34 });
+  const variants = [];
+
+  for (let v = 0; v < 3; v++) {
+    const parts = [];
+    const blobs = 6 + Math.floor(rng() * 4);
+    let x = 0;
+    let maxRadius = 0;
+    for (let i = 0; i < blobs; i++) {
+      const t = blobs > 1 ? i / (blobs - 1) : 0.5;
+      const envelope = 0.55 + 0.45 * Math.sin(Math.PI * t);
+      const r = rand(rng, 2.2, 3.6) * envelope;
+      const blob = new THREE.SphereGeometry(r, 7, 5);
+      blob.scale(1, rand(rng, 0.55, 0.75), 1);
+      blob.translate(x, rand(rng, -0.2, 0.5) * r, rand(rng, -1.5, 1.5));
+      parts.push(blob);
+      x += r * rand(rng, 0.8, 1.3);
+      maxRadius = Math.max(maxRadius, r);
+    }
+    const half = x / 2;
+    parts.forEach((part) => part.translate(-half, 0, 0));
+
+    const cloud = mergeParts(parts);
+    paintVertices(cloud, (_x, y) => {
+      const k = lerp(0.74, 1.0, smoothstep(-maxRadius * 0.7, maxRadius * 0.9, y));
+      return new THREE.Color(k, k, Math.min(1, k * 1.03));
+    });
+    variants.push(cloud);
+  }
+
+  const groups = variants.map(() => []);
+  for (let i = 0; i < count; i++) {
+    groups[i % variants.length].push({
+      x: rand(rng, -CLOUD_BOUND, CLOUD_BOUND),
+      y: rand(rng, 95, 170),
+      z: rand(rng, -CLOUD_BOUND, CLOUD_BOUND),
+      scale: rand(rng, 1.3, 2.8),
+      yaw: rand(rng, -0.5, 0.5),
+      speed: rand(rng, 1.5, 3.5),
+    });
+  }
+
+  const dummy = new THREE.Object3D();
+  const clouds = [];
+  const writeMatrix = (instanced, item, index) => {
+    dummy.position.set(item.x, item.y, item.z);
+    dummy.rotation.set(0, item.yaw, 0);
+    dummy.scale.setScalar(item.scale);
+    dummy.updateMatrix();
+    instanced.setMatrixAt(index, dummy.matrix);
+  };
+
+  groups.forEach((items, index) => {
+    if (items.length === 0) return;
+    const instanced = new THREE.InstancedMesh(
+      variants[index],
+      material,
+      items.length,
+    );
+    instanced.frustumCulled = false;
+    items.forEach((item, i) => writeMatrix(instanced, item, i));
+    instanced.instanceMatrix.needsUpdate = true;
+    clouds.push({ instanced, items });
+  });
+
+  return {
+    meshes: clouds.map((entry) => entry.instanced),
+    /** Drifts the clouds along +X and wraps them around (dt in seconds). */
+    update(dt) {
+      for (const { instanced, items } of clouds) {
+        items.forEach((item, i) => {
+          item.x += item.speed * dt;
+          if (item.x > CLOUD_BOUND) item.x = -CLOUD_BOUND;
+          writeMatrix(instanced, item, i);
+        });
+        instanced.instanceMatrix.needsUpdate = true;
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Vegetation (rf3d/src/scene/vegetation.ts)
+// ---------------------------------------------------------------------------
+
+const TRUNK_COLOR = new THREE.Color(0.4, 0.28, 0.17);
+/** Scratch objects — Babylon's RotationYawPitchRoll equals Three's "YXZ". */
+const scratchEuler = new THREE.Euler(0, 0, 0, "YXZ");
+const scratchQuaternion = new THREE.Quaternion();
+
+/** Pilot area, gravel path and fence lines — no vegetation is placed there. */
+function isReservedArea(x, z) {
+  if (x > -16 && x < 16 && z < -14 && z > -60) return true; // pilot area + path
+  if (Math.abs(z + 46) < 4 && Math.abs(x) < 54) return true; // south fence
+  if (Math.abs(Math.abs(x) - 50) < 4 && z > -50 && z < 10) return true; // side fences
+  return false;
+}
+
+/**
+ * Places instances of one geometry with a single draw call.
+ * @param {THREE.BufferGeometry} geometry
+ * @param {THREE.Material} material
+ * @param {{x: number, y: number, z: number, scale?: number, scaleY?: number,
+ *          yaw?: number, pitch?: number, roll?: number}[]} items
+ * @returns {THREE.InstancedMesh}
+ */
+function createInstancedMesh(geometry, material, items) {
+  const instanced = new THREE.InstancedMesh(geometry, material, items.length);
+  const dummy = new THREE.Object3D();
+  items.forEach((item, index) => {
+    const scale = item.scale ?? 1;
+    dummy.position.set(item.x, item.y, item.z);
+    dummy.rotation.set(item.pitch ?? 0, item.yaw ?? 0, item.roll ?? 0, "YXZ");
+    dummy.scale.set(scale, item.scaleY ?? scale, scale);
+    dummy.updateMatrix();
+    instanced.setMatrixAt(index, dummy.matrix);
+  });
+  instanced.instanceMatrix.needsUpdate = true;
+  instanced.computeBoundingSphere();
+  return instanced;
+}
+
+/** Round tree: cylinder trunk with a few icosphere leaf blobs. */
+function buildRoundTree(rng, canopy) {
+  const trunkHeight = rand(rng, 1.9, 2.7);
+  const trunk = new THREE.CylinderGeometry(0.17, 0.275, trunkHeight, 6);
+  paintVertices(
+    trunk,
+    shadeByHeight(TRUNK_COLOR, -trunkHeight / 2, trunkHeight / 2, 0.8, 1.05),
+  );
+  trunk.translate(0, trunkHeight / 2, 0);
+
+  const parts = [trunk];
+  const blobCount = 3 + Math.floor(rng() * 3);
+  for (let b = 0; b < blobCount; b++) {
+    const radius = rand(rng, 1.1, 1.9);
+    const blob = new THREE.IcosahedronGeometry(radius, 1);
+    const angle = rng() * Math.PI * 2;
+    const offset = b === 0 ? 0 : rand(rng, 0.4, 1.1);
+    const pitch = rng() * 0.6;
+    const yaw = rng() * Math.PI;
+    const roll = rng() * 0.6;
+    const y =
+      trunkHeight + radius * 0.55 + (b === 0 ? 0.6 : rand(rng, 0, 1.4));
+    blob.scale(1, rand(rng, 0.8, 1.0), 1);
+    scratchEuler.set(pitch, yaw, roll);
+    blob.applyQuaternion(scratchQuaternion.setFromEuler(scratchEuler));
+    paintVertices(
+      blob,
+      shadeByHeight(jitterColor(canopy, rng, 0.1), -radius, radius, 0.78, 1.12),
+    );
+    blob.translate(Math.cos(angle) * offset, y, Math.sin(angle) * offset);
+    parts.push(blob);
+  }
+  return mergeParts(parts);
+}
+
+/** Conifer: trunk with stacked flat-shaded cone tiers. */
+function buildConifer(rng, needle) {
+  const trunkHeight = rand(rng, 1.2, 1.8);
+  const trunk = new THREE.CylinderGeometry(0.15, 0.225, trunkHeight, 6);
+  paintVertices(trunk, TRUNK_COLOR);
+  trunk.translate(0, trunkHeight / 2, 0);
+
+  const parts = [trunk];
+  const tiers = 3 + Math.floor(rng() * 2);
+  let y = trunkHeight * 0.75;
+  let width = rand(rng, 2.6, 3.4);
+  let height = rand(rng, 2.4, 3.0);
+  for (let t = 0; t < tiers; t++) {
+    const cone = new THREE.ConeGeometry(width / 2, height, 7);
+    cone.rotateY(rng() * Math.PI);
+    paintVertices(
+      cone,
+      shadeByHeight(jitterColor(needle, rng, 0.08), -height / 2, height / 2, 0.8, 1.1),
+    );
+    cone.translate(0, y + height / 2, 0);
+    parts.push(cone);
+    y += height * 0.45;
+    width *= 0.78;
+    height *= 0.85;
+  }
+  return mergeParts(parts);
+}
+
+/** Bush: two or three flattened blobs. */
+function buildBush(rng, color) {
+  const parts = [];
+  const blobs = 2 + Math.floor(rng() * 2);
+  for (let i = 0; i < blobs; i++) {
+    const radius = rand(rng, 0.55, 0.95);
+    const x = rand(rng, -0.5, 0.5);
+    const z = rand(rng, -0.5, 0.5);
+    const yaw = rng() * Math.PI;
+    const tint = jitterColor(color, rng, 0.1);
+    const blob = new THREE.IcosahedronGeometry(radius, 1);
+    blob.scale(1, 0.75, 1);
+    blob.rotateY(yaw);
+    paintVertices(blob, shadeByHeight(tint, -radius, radius, 0.75, 1.1));
+    blob.translate(x, radius * 0.65, z);
+    parts.push(blob);
+  }
+  return mergeParts(parts);
+}
+
+/** Flower: stem, a ring of small petals and a centre. */
+function buildFlower(rng, petal, center) {
+  const stemHeight = 0.36;
+  const stem = new THREE.CylinderGeometry(0.015, 0.015, stemHeight, 4);
+  paintVertices(stem, new THREE.Color(0.27, 0.55, 0.22));
+  stem.translate(0, stemHeight / 2, 0);
+
+  const parts = [stem];
+  const petals = 5 + Math.floor(rng() * 2);
+  for (let p = 0; p < petals; p++) {
+    const angle = (p / petals) * Math.PI * 2;
+    const petalGeometry = new THREE.ConeGeometry(0.035, 0.07, 4, 1, true);
+    petalGeometry.rotateZ(-Math.PI / 2 + 0.35); // cone axis → +X, tip tilted up
+    petalGeometry.rotateY(-angle);
+    paintVertices(petalGeometry, petal);
+    petalGeometry.translate(
+      Math.cos(angle) * 0.06,
+      stemHeight + 0.01,
+      Math.sin(angle) * 0.06,
+    );
+    parts.push(petalGeometry);
+  }
+
+  const core = new THREE.IcosahedronGeometry(0.0375, 0);
+  core.scale(1, 0.6, 1);
+  paintVertices(core, center);
+  core.translate(0, stemHeight + 0.02, 0);
+  parts.push(core);
+
+  return mergeParts(parts);
+}
+
+/**
+ * Trees: a dense forest belt on the north half of the field plus scattered
+ * singles everywhere else.
+ * @returns {THREE.InstancedMesh[]}
+ */
+function createTrees(
+  rng,
+  { heightAt, clearRadius, maxCount, castShadow, receiveShadow },
+) {
+  const material = vertexColorMaterial();
+  const canopies = [
+    new THREE.Color(0.33, 0.58, 0.24),
+    new THREE.Color(0.42, 0.64, 0.25),
+    new THREE.Color(0.27, 0.5, 0.23),
+    new THREE.Color(0.55, 0.62, 0.22),
+  ];
+  const needles = [
+    new THREE.Color(0.17, 0.4, 0.22),
+    new THREE.Color(0.22, 0.46, 0.25),
+  ];
+  const roundTrees = canopies.map((color) => buildRoundTree(rng, color));
+  const conifers = needles.map((color) => buildConifer(rng, color));
+  const geometries = [...roundTrees, ...conifers];
+  const items = geometries.map(() => []);
+
+  const placed = [];
+  const canPlace = (x, z, minDistance) => {
+    for (const point of placed) {
+      const dx = point.x - x;
+      const dz = point.z - z;
+      if (dx * dx + dz * dz < minDistance * minDistance) return false;
+    }
+    return true;
+  };
+
+  const rMin = clearRadius;
+  const rMax = 430;
+  for (let i = 0; i < 6000 && placed.length < maxCount; i++) {
+    const angle = rng() * Math.PI * 2;
+    const r = Math.sqrt(lerp(rMin * rMin, rMax * rMax, rng()));
+    const x = Math.cos(angle) * r;
+    const z = Math.sin(angle) * r;
+    if (isReservedArea(x, z)) continue;
+
+    // Forest belt towards the default view, sparse elsewhere.
+    const arcMask =
+      smoothstep(0, 0.2 * Math.PI, angle) *
+      (1 - smoothstep(0.95 * Math.PI, 1.2 * Math.PI, angle));
+    const beltMask = smoothstep(100, 160, r);
+    const clump = 0.5 + 0.5 * fbm(x * 0.012 + 20, z * 0.012 - 4, 2);
+    const density =
+      0.05 +
+      0.85 * arcMask * beltMask * smoothstep(0.35, 0.7, clump) +
+      0.12 * (1 - beltMask) * smoothstep(0.5, 0.8, clump);
+    if (rng() > density) continue;
+    if (!canPlace(x, z, 3.2 + rng() * 2)) continue;
+    placed.push({ x, z });
+
+    const isConifer = rng() < 0.15 + 0.5 * beltMask * arcMask;
+    const pool = isConifer ? conifers : roundTrees;
+    const index = Math.floor(rng() * pool.length);
+    const meshIndex = isConifer ? roundTrees.length + index : index;
+    items[meshIndex].push({
+      x,
+      y: heightAt(x, z) - 0.15,
+      z,
+      scale: rand(rng, 0.85, 1.5) * (isConifer ? 1.25 : 1),
+      yaw: rng() * Math.PI * 2,
+    });
+  }
+
+  return instancedMeshes(geometries, material, items, (mesh) => {
+    mesh.castShadow = castShadow;
+    mesh.receiveShadow = receiveShadow;
+  });
+}
+
+/**
+ * Builds one instanced mesh per geometry from the collected placements; unused
+ * geometries are dropped.
+ * @returns {THREE.InstancedMesh[]}
+ */
+function instancedMeshes(geometries, material, items, configure) {
+  return geometries
+    .map((geometry, index) => {
+      if (items[index].length === 0) {
+        geometry.dispose();
+        return null;
+      }
+      const mesh = createInstancedMesh(geometry, material, items[index]);
+      configure(mesh);
+      return mesh;
+    })
+    .filter(Boolean);
+}
+
+/** Bushes: clumped just outside the pad apron. @returns {THREE.InstancedMesh[]} */
+function createBushes(rng, { heightAt, padRadius, count, castShadow }) {
+  const material = vertexColorMaterial();
+  const colors = [
+    new THREE.Color(0.32, 0.55, 0.25),
+    new THREE.Color(0.4, 0.6, 0.22),
+  ];
+  const geometries = colors.map((color) => buildBush(rng, color));
+  const items = geometries.map(() => []);
+
+  for (let i = 0, placed = 0; i < 3000 && placed < count; i++) {
+    const angle = rng() * Math.PI * 2;
+    const r = Math.sqrt(lerp(Math.pow(padRadius + 9, 2), 230 * 230, rng()));
+    const x = Math.cos(angle) * r;
+    const z = Math.sin(angle) * r;
+    if (isReservedArea(x, z)) continue;
+    const clump = 0.5 + 0.5 * fbm(x * 0.02 - 30, z * 0.02 + 12, 2);
+    if (rng() > 0.12 + 0.6 * smoothstep(0.55, 0.8, clump)) continue;
+    items[Math.floor(rng() * geometries.length)].push({
+      x,
+      y: heightAt(x, z) - 0.1,
+      z,
+      scale: rand(rng, 0.7, 1.4),
+      yaw: rng() * Math.PI * 2,
+    });
+    placed++;
+  }
+
+  return instancedMeshes(geometries, material, items, (mesh) => {
+    mesh.castShadow = castShadow;
+  });
+}
+
+/**
+ * Flowers: patches of one dominant colour plus scattered singles.
+ * @returns {THREE.InstancedMesh[]}
+ */
+function createFlowers(rng, { heightAt, padRadius, count }) {
+  const palette = [
+    [new THREE.Color(0.93, 0.22, 0.2), new THREE.Color(0.98, 0.85, 0.2)],
+    [new THREE.Color(0.98, 0.82, 0.18), new THREE.Color(0.55, 0.32, 0.1)],
+    [new THREE.Color(0.97, 0.97, 0.95), new THREE.Color(0.98, 0.8, 0.2)],
+    [new THREE.Color(0.62, 0.36, 0.86), new THREE.Color(0.98, 0.85, 0.3)],
+    [new THREE.Color(0.98, 0.55, 0.72), new THREE.Color(0.98, 0.9, 0.4)],
+    [new THREE.Color(0.98, 0.55, 0.16), new THREE.Color(0.5, 0.25, 0.08)],
+  ];
+  const geometries = palette.map(([petal, center]) =>
+    buildFlower(rng, petal, center),
+  );
+  const material = vertexColorMaterial();
+  const items = geometries.map(() => []);
+
+  const blocked = (x, z) =>
+    Math.hypot(x, z) < padRadius + 1.2 ||
+    (x > -3.5 && x < 3.5 && z < -14 && z > -36) ||
+    Math.hypot(x, z + 31) < 5;
+
+  const patches = [];
+  for (let i = 0; i < 16; i++) {
+    const angle = rng() * Math.PI * 2;
+    const distance = rand(rng, padRadius + 8, 62);
+    patches.push({
+      x: Math.cos(angle) * distance,
+      z: Math.sin(angle) * distance,
+      r: rand(rng, 3.5, 8),
+      main: Math.floor(rng() * geometries.length),
+    });
+  }
+
+  const perPatch = Math.floor((count * 0.8) / patches.length);
+  for (const patch of patches) {
+    for (let i = 0; i < perPatch; i++) {
+      const angle = rng() * Math.PI * 2;
+      const distance = Math.sqrt(rng()) * patch.r;
+      const x = patch.x + Math.cos(angle) * distance;
+      const z = patch.z + Math.sin(angle) * distance;
+      if (blocked(x, z)) continue;
+      const variant =
+        rng() < 0.7 ? patch.main : Math.floor(rng() * geometries.length);
+      items[variant].push({
+        x,
+        y: heightAt(x, z),
+        z,
+        scale: rand(rng, 0.8, 1.35),
+        yaw: rng() * Math.PI * 2,
+      });
+    }
+  }
+
+  const scattered = count - perPatch * patches.length;
+  for (let i = 0; i < scattered; i++) {
+    const angle = rng() * Math.PI * 2;
+    const distance = Math.sqrt(lerp(Math.pow(padRadius + 2, 2), 75 * 75, rng()));
+    const x = Math.cos(angle) * distance;
+    const z = Math.sin(angle) * distance;
+    if (blocked(x, z)) continue;
+    items[Math.floor(rng() * geometries.length)].push({
+      x,
+      y: heightAt(x, z),
+      z,
+      scale: rand(rng, 0.8, 1.3),
+      yaw: rng() * Math.PI * 2,
+    });
+  }
+
+  return instancedMeshes(geometries, material, items, () => {});
+}
+
+// ---------------------------------------------------------------------------
+// Props: windsock, fences, pilot area, hay bales (rf3d/src/scene/props.ts)
+// ---------------------------------------------------------------------------
+
+const WOOD = new THREE.Color(0.52, 0.38, 0.24);
+const WOOD_DARK = new THREE.Color(0.42, 0.3, 0.18);
+
+/**
+ * Windsock: base, pole, ring and a five-band sock that swings in the wind.
+ * @returns {{root: THREE.Group, update(t: number): void}}
+ */
+function createWindsock() {
+  const material = vertexColorMaterial({ doubleSided: true });
+  const root = new THREE.Group();
+
+  const base = new THREE.CylinderGeometry(0.35, 0.35, 0.3, 12);
+  paintVertices(base, new THREE.Color(0.62, 0.62, 0.6));
+  base.translate(0, 0.15, 0);
+
+  const poleHeight = 6;
+  const pole = new THREE.CylinderGeometry(0.06, 0.06, poleHeight, 8);
+  paintVertices(pole, new THREE.Color(0.86, 0.87, 0.9));
+  pole.translate(0, poleHeight / 2, 0);
+
+  // Pivot at the top of the pole; its Euler order matches Babylon's yaw →
+  // pitch → roll rotations.
+  const pivot = new THREE.Group();
+  pivot.position.y = poleHeight;
+  pivot.rotation.order = "YXZ";
+
+  // Three's torus already has its hole along +Z (Babylon rotated it by 90°).
+  const ring = new THREE.TorusGeometry(0.36, 0.0175, 8, 16);
+  paintVertices(ring, new THREE.Color(0.3, 0.3, 0.32));
+
+  // Tapered sock made of five alternating orange/white bands so the colour
+  // borders stay crisp.
+  const sockHeight = 2.6;
+  const bands = 5;
+  const segmentHeight = sockHeight / bands;
+  const segments = [];
+  for (let i = 0; i < bands; i++) {
+    const from = i / bands;
+    const to = (i + 1) / bands;
+    const segment = new THREE.CylinderGeometry(
+      lerp(0.7, 0.26, to) / 2,
+      lerp(0.7, 0.26, from) / 2,
+      segmentHeight,
+      14,
+      1,
+      true,
+    );
+    paintVertices(
+      segment,
+      i % 2 === 0
+        ? new THREE.Color(1.0, 0.42, 0.05)
+        : new THREE.Color(0.97, 0.97, 0.95),
+    );
+    segment.translate(0, -sockHeight / 2 + (i + 0.5) * segmentHeight, 0);
+    segments.push(segment);
+  }
+  const sock = mergeParts(segments);
+  sock.rotateX(Math.PI / 2); // local +Y (sock axis) → +Z
+  sock.translate(0, 0, sockHeight / 2); // wide opening sits on the pivot
+
+  const baseMesh = new THREE.Mesh(base, material);
+  const poleMesh = new THREE.Mesh(pole, material);
+  const ringMesh = new THREE.Mesh(ring, material);
+  const sockMesh = new THREE.Mesh(sock, material);
+  poleMesh.castShadow = true;
+  sockMesh.castShadow = true;
+  pivot.add(ringMesh, sockMesh);
+  root.add(baseMesh, poleMesh, pivot);
+
+  // The wind blows along +X — the same direction the clouds drift.
+  const baseYaw = Math.PI / 2;
+  return {
+    root,
+    /** t: elapsed seconds */
+    update(t) {
+      pivot.rotation.y =
+        baseYaw + 0.2 * Math.sin(t * 0.8) + 0.07 * Math.sin(t * 2.9 + 1.3);
+      pivot.rotation.x =
+        0.38 + 0.13 * Math.sin(t * 1.4 + 0.7) + 0.04 * Math.sin(t * 4.1);
+    },
+  };
+}
+
+/**
+ * Wooden fence built from 3 m segments placed along the given lines.
+ * @param {[number, number, number, number][]} lines
+ * @param {(x: number, z: number) => number} heightAt
+ * @returns {THREE.InstancedMesh}
+ */
+function createFences(lines, heightAt, castShadow) {
+  const segmentLength = 3;
+  const makePost = (x) => {
+    const post = new THREE.BoxGeometry(0.12, 1.15, 0.12);
+    paintVertices(post, WOOD_DARK);
+    post.translate(x, 0.575, 0);
+    return post;
+  };
+  const makeRail = (y) => {
+    const rail = new THREE.BoxGeometry(segmentLength, 0.08, 0.05);
+    paintVertices(rail, WOOD);
+    rail.translate(segmentLength / 2, y, 0);
+    return rail;
+  };
+  const geometry = mergeParts([
+    makePost(0),
+    makePost(segmentLength - 0.002),
+    makeRail(0.55),
+    makeRail(0.98),
+  ]);
+
+  const items = [];
+  for (const [x1, z1, x2, z2] of lines) {
+    const dx = x2 - x1;
+    const dz = z2 - z1;
+    const length = Math.hypot(dx, dz);
+    if (length < 0.01) continue;
+    const ux = dx / length;
+    const uz = dz / length;
+    const count = Math.max(1, Math.round(length / segmentLength));
+    const yaw = Math.atan2(-uz, ux); // yaw that maps local +X onto (ux, uz)
+    for (let i = 0; i < count; i++) {
+      const x = x1 + ux * segmentLength * i;
+      const z = z1 + uz * segmentLength * i;
+      items.push({ x, y: heightAt(x, z), z, yaw });
+    }
+  }
+
+  const mesh = createInstancedMesh(geometry, vertexColorMaterial(), items);
+  mesh.castShadow = castShadow;
+  return mesh;
+}
+
+/**
+ * Pilot area: gravel apron with the path to the pad, a table, a bench and a
+ * parasol.
+ * @returns {THREE.Object3D[]}
+ */
+function createPilotArea(gravelTexture, padRadius, castShadow) {
+  const created = [];
+
+  const apronTexture = gravelTexture.clone();
+  apronTexture.repeat.set(4, 4);
+  const apron = new THREE.Mesh(
+    new THREE.CircleGeometry(4, 48).rotateX(-Math.PI / 2),
+    new THREE.MeshLambertMaterial({ map: apronTexture }),
+  );
+  apron.position.set(0, 0.03, -31);
+  apron.receiveShadow = true;
+  created.push(apron);
+
+  const pathLength = 31 - 4 - (padRadius + 0.5);
+  const pathTexture = gravelTexture.clone();
+  pathTexture.repeat.set(1.1, pathLength / 2);
+  const path = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.2, pathLength).rotateX(-Math.PI / 2),
+    new THREE.MeshLambertMaterial({ map: pathTexture }),
+  );
+  path.position.set(0, 0.03, -(padRadius + 0.5) - pathLength / 2);
+  path.receiveShadow = true;
+  created.push(path);
+
+  const woodMaterial = vertexColorMaterial();
+
+  const tableParts = [];
+  const tableTop = new THREE.BoxGeometry(1.8, 0.06, 0.8);
+  paintVertices(tableTop, WOOD);
+  tableTop.translate(0, 0.82, 0);
+  tableParts.push(tableTop);
+  for (const sx of [-0.8, 0.8]) {
+    for (const sz of [-0.32, 0.32]) {
+      const leg = new THREE.BoxGeometry(0.07, 0.8, 0.07);
+      paintVertices(leg, WOOD_DARK);
+      leg.translate(sx, 0.4, sz);
+      tableParts.push(leg);
+    }
+  }
+  const table = new THREE.Mesh(mergeParts(tableParts), woodMaterial);
+  table.position.set(-1.7, 0, -31.6);
+
+  const benchParts = [];
+  const seat = new THREE.BoxGeometry(1.8, 0.06, 0.42);
+  paintVertices(seat, WOOD);
+  seat.translate(0, 0.46, 0);
+  benchParts.push(seat);
+  for (const sx of [-0.75, 0.75]) {
+    const leg = new THREE.BoxGeometry(0.08, 0.44, 0.4);
+    paintVertices(leg, WOOD_DARK);
+    leg.translate(sx, 0.22, 0);
+    benchParts.push(leg);
+  }
+  const bench = new THREE.Mesh(mergeParts(benchParts), woodMaterial);
+  bench.position.set(1.6, 0, -31.2);
+
+  for (const mesh of [table, bench]) {
+    mesh.castShadow = castShadow;
+    created.push(mesh);
+  }
+
+  const pole = new THREE.CylinderGeometry(0.025, 0.025, 2.5, 8);
+  paintVertices(pole, new THREE.Color(0.8, 0.8, 0.82));
+  pole.translate(0, 1.25, 0);
+  const canopy = new THREE.CylinderGeometry(0.02, 1.3, 0.55, 8, 1, true);
+  paintFaces(canopy, (cx, _cy, cz) => {
+    const sector =
+      Math.floor(((Math.atan2(cz, cx) + Math.PI) / (Math.PI * 2)) * 8 + 0.5) % 8;
+    return sector % 2 === 0
+      ? new THREE.Color(0.9, 0.2, 0.18)
+      : new THREE.Color(0.97, 0.96, 0.92);
+  });
+  const umbrella = new THREE.Mesh(
+    mergeParts([pole, canopy]),
+    vertexColorMaterial({ doubleSided: true }),
+  );
+  umbrella.position.set(-1.7, 0, -32.4);
+  umbrella.castShadow = castShadow;
+  created.push(umbrella);
+
+  return created;
+}
+
+/**
+ * Hay bales rolled out on the western fields.
+ * @returns {THREE.InstancedMesh}
+ */
+function createHayBales(rng, heightAt, castShadow) {
+  const bale = new THREE.CylinderGeometry(0.75, 0.75, 1.5, 14).toNonIndexed();
+  bale.computeVertexNormals(); // flat shading, like Babylon's convertToFlatShadedMesh
+  paintFaces(bale, (_x, y) =>
+    Math.abs(y) > 0.74
+      ? new THREE.Color(0.72, 0.56, 0.26)
+      : new THREE.Color(0.88, 0.74, 0.38),
+  );
+
+  const items = [];
+  for (let i = 0; i < 26; i++) {
+    const x = -175 + rand(rng, -75, 75);
+    const z = -70 + rand(rng, -60, 60);
+    if (Math.hypot(x, z) < 72) continue;
+    items.push({
+      x,
+      y: heightAt(x, z) + 0.72,
+      z,
+      yaw: rand(rng, 0, Math.PI * 2),
+      roll: Math.PI / 2,
+    });
+  }
+
+  const mesh = createInstancedMesh(bale, vertexColorMaterial(), items);
+  mesh.castShadow = castShadow;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// ---------------------------------------------------------------------------
+// FreshMorningEnvironment — the object Blackbox3DPanel talks to
+// ---------------------------------------------------------------------------
+
+/** Fence lines of the airfield (rf3d createAirfield.ts). */
+const FENCE_LINES = [
+  // Southern edge, with the centre left open as the entrance.
+  [-50, -46, -4, -46],
+  [4, -46, 50, -46],
+  // East and west edges.
+  [-50, -46, -50, 6],
+  [50, -46, 50, 6],
+  // Safety fence either side of the path to the pad.
+  [-9, -19.5, -2, -19.5],
+  [2, -19.5, 9, -19.5],
+];
+
+/** Rough low-end detection, same rule as rf3d createAirfield.ts. */
+function isLowEndDevice() {
+  const navigation = globalThis.navigator ?? {};
+  const cores = navigation.hardwareConcurrency ?? 8;
+  const memory = navigation.deviceMemory ?? 8;
+  return cores <= 4 || memory <= 3;
 }
 
 export class FreshMorningEnvironment {
+  /**
+   * Builds the whole airfield.
+   * @param {THREE.Scene} scene
+   * @param {THREE.Object3D} worldGroup group that is rotated to line the
+   *   airfield up with the flight direction — only the field goes in there
+   * @param {THREE.Camera} camera used to keep the sky centred
+   */
   constructor(scene, worldGroup, camera) {
     this.scene = scene;
     this.worldGroup = worldGroup;
     this.camera = camera;
-    this.random = createSeededRandom(0x4d3a17b2);
+    this.rng = mulberry32(20240601); // rf3d's seed → identical layout
+    this.lowEnd = isLowEndDevice();
+    this.elapsed = 0;
     this.resources = new Set();
-    this.windUniforms = { uTime: { value: 0 } };
-    this.clouds = [];
-    this.butterflies = [];
-    this.water = null;
-    this.windsockPivot = null;
-    this.pollen = null;
-    this.butterflyTarget = new THREE.Vector3();
     this.previousBackground = scene.background;
     this.previousFog = scene.fog;
-    this.sceneBackground = new THREE.Color("#87ceeb");
-    this.fog = new THREE.FogExp2("#b9dcff", 0.00008);
-    scene.background = this.sceneBackground;
-    scene.fog = this.fog;
+    this.textures = null;
+    this.clouds = null;
+    this.windsock = null;
+    this.sunLight = null;
+    this.sky = null;
 
+    // Atmosphere: the horizon colour is clear colour and fog at once.
+    const horizon = new THREE.Color(0.8, 0.88, 0.96);
+    scene.background = horizon;
+    scene.fog = new THREE.FogExp2(horizon.clone(), 0.0022);
+
+    // Sky, clouds and lights stay world aligned (they must not follow the
+    // airfield alignment rotation); the field itself goes into the world group.
     this.skyRoot = new THREE.Group();
-    this.cloudRoot = new THREE.Group();
     this.lightRoot = new THREE.Group();
+    this.cloudRoot = new THREE.Group();
     this.environmentRoot = new THREE.Group();
-    this.cloudRoot.position.set(camera.position.x, 0, camera.position.z);
-    scene.add(this.skyRoot, this.cloudRoot, this.lightRoot);
+    scene.add(this.skyRoot, this.lightRoot, this.cloudRoot);
     worldGroup.add(this.environmentRoot);
 
-    this.terrainColors = {
-      infield: new THREE.Color("#4d8c40"),
-      meadow: new THREE.Color("#3f7d36"),
-      golden: new THREE.Color("#699c44"),
-      hill: new THREE.Color("#2f632b"),
-      mountain: new THREE.Color("#274e2b"),
-      sand: new THREE.Color("#9c8e6e"),
-    };
-    this.sunDirection = this.computeSunDirection(26, 108);
-    this._buildSkyAndLights();
-    this._buildTerrain();
-    this._buildAirfield();
-    this._buildGrass();
-    this._buildFlowers();
-    this._buildTrees();
+    this._buildSky();
+    this._buildLights();
     this._buildClouds();
-    this._buildAmbientLife();
+    this._buildTerrain();
+    this._buildVegetation();
+    this._buildProps();
   }
 
+  /**
+   * Registers a geometry, material or texture for disposal.
+   * @template T
+   * @param {T} resource
+   * @returns {T}
+   */
   _track(resource) {
     if (resource) this.resources.add(resource);
     return resource;
   }
 
-  _material(options) {
-    const material = this._track(new THREE.MeshLambertMaterial(options));
-    for (const value of Object.values(material)) {
-      if (value?.isTexture) this._track(value);
-    }
-    return material;
+  /** Registers the geometries, materials and textures of an object tree. */
+  _trackObject(object) {
+    object.traverse((child) => {
+      if (child.geometry) this._track(child.geometry);
+      const material = child.material;
+      if (!material) return;
+      for (const value of Array.isArray(material) ? material : [material]) {
+        this._track(value);
+        for (const property of Object.values(value)) {
+          if (property?.isTexture) this._track(property);
+        }
+      }
+    });
+    return object;
   }
 
-  _standardMaterial(options) {
-    const material = this._track(new THREE.MeshStandardMaterial(options));
-    for (const value of Object.values(material)) {
-      if (value?.isTexture) this._track(value);
-    }
-    return material;
-  }
-
-  _windMaterial(options, height) {
-    const material = this._material(options);
-    material.onBeforeCompile = (shader) => {
-      shader.uniforms.uTime = this.windUniforms.uTime;
-      shader.vertexShader = `uniform float uTime;\n${shader.vertexShader}`;
-      shader.vertexShader = shader.vertexShader.replace(
-        "#include <begin_vertex>",
-        `
-                #include <begin_vertex>
-                #ifdef USE_INSTANCING
-                    vec3 instanceOrigin = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-                #else
-                    vec3 instanceOrigin = vec3(0.0);
-                #endif
-                float heightFactor = clamp(position.y / ${height.toFixed(2)}, 0.0, 1.0);
-                float gust = sin(dot(instanceOrigin.xz, vec2(0.14, 0.11)) - uTime * 2.0);
-                float flutter = cos(instanceOrigin.x * 0.7 + instanceOrigin.z * 0.5 + uTime * 3.1);
-                float bend = heightFactor * heightFactor * (0.018 + 0.012 * gust + 0.006 * flutter);
-                transformed.x += bend;
-                transformed.z += bend * 0.55;
-            `,
-      );
-    };
-    material.customProgramCacheKey = () =>
-      `fresh-morning-wind-${height.toFixed(2)}`;
-    return material;
-  }
-
-  computeSunDirection(elevation, azimuth) {
-    const elevationRad = THREE.MathUtils.degToRad(elevation);
-    const azimuthRad = THREE.MathUtils.degToRad(azimuth);
-    return new THREE.Vector3(
-      Math.cos(elevationRad) * Math.cos(azimuthRad),
-      Math.sin(elevationRad),
-      Math.cos(elevationRad) * Math.sin(azimuthRad),
-    ).normalize();
-  }
-
-  _buildSkyAndLights() {
-    const zenith = new THREE.Color("#2563eb");
-    const zenithEnd = new THREE.Color("#1d4ed8");
-    const horizon = new THREE.Color("#bae6fd");
-    const horizonEnd = new THREE.Color("#dff2fe");
-    const fogColor = new THREE.Color("#bae6fd");
-    const fogEnd = new THREE.Color("#d8f0ff");
-    const dayBlend = THREE.MathUtils.clamp((26 - 24) / 45, 0, 1);
-    zenith.lerp(zenithEnd, dayBlend);
-    horizon.lerp(horizonEnd, dayBlend);
-    fogColor.lerp(fogEnd, dayBlend);
-    this.fog.color.copy(fogColor);
-
-    const skyUniforms = {
-      uSunDirection: { value: this.sunDirection.clone() },
-      uZenithColor: { value: zenith },
-      uHorizonColor: { value: horizon },
-      uGroundColor: { value: new THREE.Color("#658554") },
-      uSunColor: { value: new THREE.Color("#fff8e7") },
-    };
-    const skyGeometry = this._track(
-      new THREE.SphereGeometry(SKY_RADIUS, 40, 24),
-    );
-    const skyMaterial = this._track(
-      new THREE.ShaderMaterial({
-        uniforms: skyUniforms,
-        side: THREE.BackSide,
-        depthWrite: false,
-        depthTest: false,
-        vertexShader: `
-                    varying vec3 vDirection;
-                    void main() {
-                        vDirection = normalize((modelMatrix * vec4(position, 0.0)).xyz);
-                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                    }
-                `,
-        fragmentShader: `
-                    uniform vec3 uSunDirection;
-                    uniform vec3 uZenithColor;
-                    uniform vec3 uHorizonColor;
-                    uniform vec3 uGroundColor;
-                    uniform vec3 uSunColor;
-                    varying vec3 vDirection;
-                    void main() {
-                        vec3 dir = normalize(vDirection);
-                        float y = dir.y;
-                        float horizonFactor = pow(clamp(1.0 - max(y, 0.0), 0.0, 1.0), 2.2);
-                        vec3 skyColor = mix(uZenithColor, uHorizonColor, horizonFactor);
-                        if (y < 0.0) {
-                            skyColor = mix(uHorizonColor, uGroundColor, clamp(-y * 4.0, 0.0, 1.0));
-                        }
-                        vec3 sunDir = normalize(uSunDirection);
-                        float sunDot = max(dot(dir, sunDir), 0.0);
-                        float halo = pow(sunDot, 12.0) * 0.38 + pow(sunDot, 96.0) * 0.55;
-                        float disc = smoothstep(0.9992, 0.9998, sunDot);
-                        skyColor += uSunColor * halo;
-                        skyColor = mix(skyColor, uSunColor * 1.35, disc);
-                        gl_FragColor = vec4(skyColor, 1.0);
-                        #include <tonemapping_fragment>
-                        #include <colorspace_fragment>
-                    }
-                `,
-      }),
-    );
-    this.sky = new THREE.Mesh(skyGeometry, skyMaterial);
+  _buildSky() {
+    this.sky = this._trackObject(createSkyDome());
     this.sky.position.copy(this.camera.position);
-    this.sky.frustumCulled = false;
-    this.sky.renderOrder = -1000;
     this.skyRoot.add(this.sky);
+  }
 
-    this.ambientLight = new THREE.AmbientLight("#ffffff", 0.45);
-    this.hemiLight = new THREE.HemisphereLight("#bfe3ff", "#4d6b3c", 0.85);
-    this.hemiLight.position.set(0, 120, 0);
-    this.sunLight = new THREE.DirectionalLight("#fff8e7", 2.2);
-    this.sunLight.position.copy(this.sunDirection).multiplyScalar(1200);
-    this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.set(1024, 1024);
-    this.sunLight.shadow.camera.near = 1;
-    this.sunLight.shadow.camera.far = 3000;
-    this.sunLight.shadow.camera.left = -350;
-    this.sunLight.shadow.camera.right = 350;
-    this.sunLight.shadow.camera.top = 350;
-    this.sunLight.shadow.camera.bottom = -350;
-    this.sunLight.shadow.bias = -0.0004;
-    this.sunLight.target.position.set(0, 0, 0);
-    this.lightRoot.add(
-      this.ambientLight,
-      this.hemiLight,
-      this.sunLight,
-      this.sunLight.target,
+  _buildLights() {
+    // Global brightness boost (user request: 전체 조명 30% 밝게).
+    const LIGHT_GAIN = 1.3;
+    // Main light: rf3d's directional "sun" including its shadow settings.
+    const sun = new THREE.DirectionalLight(
+      new THREE.Color(1.0, 0.96, 0.88),
+      1.35 * LIGHT_GAIN,
     );
-  }
+    sun.position.copy(SUN_DIRECTION).multiplyScalar(320);
+    sun.castShadow = true;
+    const size = this.lowEnd ? 1024 : 2048;
+    sun.shadow.mapSize.set(size, size);
+    sun.shadow.camera.left = -140;
+    sun.shadow.camera.right = 140;
+    sun.shadow.camera.top = 140;
+    sun.shadow.camera.bottom = -140;
+    sun.shadow.camera.near = 20;
+    sun.shadow.camera.far = 700;
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.shadow.bias = 0.0012;
+    sun.shadow.normalBias = 0.03;
+    this.sunLight = sun;
+    this.lightRoot.add(sun, sun.target);
 
-  terrainHeight(x, z) {
-    const distance = Math.hypot(x, z);
-    const edgeX = Math.max(0, Math.abs(x) - 1800);
-    const edgeZ = Math.max(0, Math.abs(z) - 1800);
-    const plateauDistance = Math.hypot(edgeX, edgeZ);
-    const plateauBlend = smoothStep(plateauDistance, 0, 1400);
-    const wave =
-      Math.sin(x * 0.021 + 0.4) * Math.cos(z * 0.021 - 0.2) * 1.1 +
-      Math.sin((x + z) * 0.014) * 0.65 +
-      0.45;
-    const hill = Math.min(7, Math.max(0, distance - 2600) * 0.0026);
-    const pondX = (x - compactCoordinate(WATER_X)) / 25;
-    const pondZ = (z - compactCoordinate(WATER_Z)) / 16;
-    const pondDistance = pondX * pondX + pondZ * pondZ;
-    const pond = pondDistance < 1.8 ? -0.9 * Math.exp(-pondDistance * 1.4) : 0;
-    return plateauBlend * (Math.max(0, wave) + hill) + pond;
-  }
-
-  isExcluded(x, z) {
-    if (
-      (Math.abs(x - compactCoordinate(28)) < 4 ||
-        Math.abs(x + compactCoordinate(28)) < 4) &&
-      z > -17 &&
-      z < 57
-    )
-      return true;
-    if (Math.abs(x) < 21 && z > 42 && z < 58) return true;
-    if (
-      Math.hypot(
-        x - compactCoordinate(WATER_X),
-        z - compactCoordinate(WATER_Z),
-      ) < WATER_RADIUS + 5
-    )
-      return true;
-    return false;
-  }
-
-  _buildTerrain() {
-    const geometry = this._track(
-      new THREE.PlaneGeometry(
-        FIELD_SIZE,
-        FIELD_SIZE,
-        FIELD_SEGMENTS,
-        FIELD_SEGMENTS,
+    // Sky/ground fill (Babylon's HemisphericLight) — it keeps the shadows
+    // readable without a second shadow map.
+    this.lightRoot.add(
+      new THREE.HemisphereLight(
+        new THREE.Color(0.62, 0.74, 0.92),
+        new THREE.Color(0.36, 0.42, 0.26),
+        0.6 * LIGHT_GAIN,
       ),
     );
-    geometry.rotateX(-Math.PI / 2);
-    const positions = geometry.attributes.position;
-    const colors = [];
-    const color = new THREE.Color();
-    for (let i = 0; i < positions.count; i++) {
-      const x = positions.getX(i);
-      const z = positions.getZ(i);
-      const y = this.terrainHeight(x, z);
-      positions.setY(i, y);
-      const noise =
-        Math.sin(x * 0.07) * Math.cos(z * 0.07) * 0.5 +
-        Math.sin((x - z) * 0.04) * 0.5;
-      if (y < -0.06) {
-        color
-          .copy(this.terrainColors.meadow)
-          .lerp(
-            this.terrainColors.sand,
-            THREE.MathUtils.clamp(-y / 0.85, 0, 1),
-          );
-      } else if (y < 0.25 && Math.abs(x) < 150 && Math.abs(z) < 150) {
-        const stripe = Math.sin(x * 0.65) > 0 ? 0.04 : -0.02;
-        color.copy(this.terrainColors.infield).offsetHSL(0, 0, stripe);
-      } else if (y < 6.5) {
-        color
-          .copy(this.terrainColors.meadow)
-          .lerp(
-            this.terrainColors.golden,
-            THREE.MathUtils.clamp(noise * 0.45 + 0.35, 0, 1),
-          );
-      } else {
-        const t = THREE.MathUtils.clamp((y - 6.5) / 18, 0, 1);
-        color
-          .copy(this.terrainColors.hill)
-          .lerp(this.terrainColors.mountain, t);
-      }
-      colors.push(color.r, color.g, color.b);
-    }
-    geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-    geometry.computeVertexNormals();
-    const material = this._material({ vertexColors: true });
-    const terrain = new THREE.Mesh(geometry, material);
-    terrain.receiveShadow = true;
-    this.environmentRoot.add(terrain);
-
-    const waterGeometry = this._track(
-      new THREE.CircleGeometry(WATER_RADIUS, 40),
-    );
-    waterGeometry.rotateX(-Math.PI / 2);
-    waterGeometry.scale(1.2, 1, 0.72);
-    const waterMaterial = this._standardMaterial({
-      color: "#38bdf8",
-      roughness: 0.12,
-      metalness: 0.55,
-      transparent: true,
-      opacity: 0.82,
-    });
-    this.water = new THREE.Mesh(waterGeometry, waterMaterial);
-    this.water.position.set(
-      compactCoordinate(WATER_X),
-      0.02,
-      compactCoordinate(WATER_Z),
-    );
-    this.water.receiveShadow = true;
-    this.environmentRoot.add(this.water);
-
-    const rockGeometry = this._track(new THREE.DodecahedronGeometry(0.8, 1));
-    const rockMaterial = this._standardMaterial({
-      color: "#78716c",
-      roughness: 0.85,
-    });
-    const rocks = new THREE.InstancedMesh(rockGeometry, rockMaterial, 24);
-    const dummy = new THREE.Object3D();
-    for (let i = 0; i < 24; i++) {
-      const angle = (i / 24) * Math.PI * 2 + (this.random() - 0.5) * 0.2;
-      const radius = WATER_RADIUS + 1 + this.random() * 3;
-      const x = compactCoordinate(
-        WATER_X + Math.cos(angle) * radius,
-      );
-      const z = compactCoordinate(
-        WATER_Z + Math.sin(angle) * radius * 0.72,
-      );
-      dummy.position.set(x, this.terrainHeight(x, z) + 0.18, z);
-      dummy.rotation.set(
-        this.random() * 0.3,
-        this.random() * Math.PI,
-        this.random() * 0.2,
-      );
-      dummy.scale.set(
-        0.55 + this.random() * 1.2,
-        0.35 + this.random() * 0.5,
-        0.6 + this.random(),
-      );
-      dummy.updateMatrix();
-      rocks.setMatrixAt(i, dummy.matrix);
-    }
-    rocks.instanceMatrix.needsUpdate = true;
-    rocks.computeBoundingSphere();
-    rocks.castShadow = true;
-    rocks.receiveShadow = true;
-    this.environmentRoot.add(rocks);
-  }
-
-  _canvasTexture(width, height, draw) {
-    const texture = createColorTexture(width, height, draw, this.random);
-    this._track(texture);
-    return texture;
-  }
-
-  _buildAirfield() {
-    const shoulderMaterial = this._standardMaterial({
-      color: "#57534e",
-      roughness: 0.92,
-    });
-    const lineMaterial = this._material({ color: "#f8fafc" });
-    const yellowMaterial = this._material({ color: "#facc15" });
-    const darkMaterial = this._standardMaterial({
-      color: "#334155",
-      roughness: 0.8,
-    });
-    const steelMaterial = this._standardMaterial({
-      color: "#94a3b8",
-      roughness: 0.38,
-      metalness: 0.55,
-    });
-    const roofMaterial = this._standardMaterial({
-      color: "#1e3a2f",
-      roughness: 0.55,
-      metalness: 0.25,
-    });
-    const woodMaterial = this._standardMaterial({
-      color: "#92400e",
-      roughness: 0.8,
-    });
-
-    const addBox = (
-      size,
-      position,
-      material,
-      receiveShadow = true,
-      castShadow = false,
-    ) => {
-      const geometry = this._track(
-        new THREE.BoxGeometry(size[0], size[1], size[2]),
-      );
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(
-        compactCoordinate(position[0]),
-        position[1],
-        compactCoordinate(position[2]),
-      );
-      mesh.receiveShadow = receiveShadow;
-      mesh.castShadow = castShadow;
-      this.environmentRoot.add(mesh);
-      return mesh;
-    };
-
-    for (const x of [-28, 28]) {
-      addBox([8, 0.08, 74], [x, 0.08, 40], shoulderMaterial);
-      addBox([6, 0.1, 70], [x, 0.13, 40], darkMaterial);
-      addBox([0.3, 0.035, 68], [x - 2.8, 0.2, 40], yellowMaterial);
-      addBox([0.3, 0.035, 68], [x + 2.8, 0.2, 40], yellowMaterial);
-    }
-    addBox([64, 0.1, 12], [0, 0.08, 104], shoulderMaterial);
-    addBox([62, 0.12, 10], [0, 0.14, 104], darkMaterial);
-    for (const x of [-14, -7, 0, 7, 14]) {
-      addBox([2.6, 0.1, 2.2], [x, 0.24, 88], darkMaterial);
-      addBox([2.5, 0.04, 0.15], [x, 0.31, 86.95], yellowMaterial);
-      addBox([2.5, 0.04, 0.15], [x, 0.31, 89.05], yellowMaterial);
-    }
-
-    const shelter = new THREE.Group();
-    shelter.position.set(0, 0.08, compactCoordinate(104));
-    this.environmentRoot.add(shelter);
-    const postGeometry = this._track(
-      new THREE.CylinderGeometry(0.12, 0.12, 3.8, 10),
-    );
-    for (const x of [-12, -4, 4, 12]) {
-      for (const z of [-3, 3]) {
-        const post = new THREE.Mesh(postGeometry, steelMaterial);
-        post.position.set(x, 1.9, z);
-        post.castShadow = true;
-        shelter.add(post);
-      }
-    }
-    const roofGeometry = this._track(new THREE.BoxGeometry(26.5, 0.12, 3.65));
-    const frontRoof = new THREE.Mesh(roofGeometry, roofMaterial);
-    frontRoof.position.set(0, 4.05, -1.68);
-    frontRoof.rotation.x = 0.16;
-    frontRoof.castShadow = true;
-    shelter.add(frontRoof);
-    const backRoof = new THREE.Mesh(roofGeometry, roofMaterial);
-    backRoof.position.set(0, 4.05, 1.68);
-    backRoof.rotation.x = -0.16;
-    backRoof.castShadow = true;
-    shelter.add(backRoof);
-    for (const x of [-8, 0, 8])
-      addBox([4.8, 0.06, 0.16], [x, 0.08, 88.9], lineMaterial);
-
-    const signTexture = this._canvasTexture(512, 256, (ctx, w, h) => {
-      ctx.fillStyle = "#0f291e";
-      ctx.fillRect(0, 0, w, h);
-      ctx.strokeStyle = "#34d399";
-      ctx.lineWidth = 8;
-      ctx.strokeRect(12, 12, w - 24, h - 24);
-      ctx.fillStyle = "#fef3c7";
-      ctx.fillRect(96, 82, 320, 18);
-      ctx.fillRect(144, 126, 224, 18);
-      ctx.fillStyle = "#34d399";
-      ctx.fillRect(216, 168, 80, 12);
-    });
-    const signMaterial = this._standardMaterial({
-      map: signTexture,
-      roughness: 0.55,
-    });
-    const signGroup = new THREE.Group();
-    signGroup.position.set(compactCoordinate(-18), 0, compactCoordinate(107));
-    signGroup.rotation.y = -0.18;
-    const signPostGeometry = this._track(
-      new THREE.CylinderGeometry(0.09, 0.09, 2.6, 8),
-    );
-    for (const x of [-1.4, 1.4]) {
-      const post = new THREE.Mesh(signPostGeometry, woodMaterial);
-      post.position.set(x, 1.3, 0);
-      post.castShadow = true;
-      signGroup.add(post);
-    }
-    const signBoardGeometry = this._track(new THREE.BoxGeometry(3.6, 1.8, 0.1));
-    const signBoard = new THREE.Mesh(signBoardGeometry, [
-      woodMaterial,
-      woodMaterial,
-      woodMaterial,
-      woodMaterial,
-      signMaterial,
-      signMaterial,
-    ]);
-    signBoard.position.y = 1.8;
-    signBoard.castShadow = true;
-    signGroup.add(signBoard);
-    this.environmentRoot.add(signGroup);
-
-    const windsock = new THREE.Group();
-    windsock.position.set(compactCoordinate(-23), 0, compactCoordinate(-30));
-    const windsockBase = new THREE.Mesh(
-      this._track(new THREE.CylinderGeometry(2.1, 2.2, 0.08, 20)),
-      shoulderMaterial,
-    );
-    windsockBase.position.y = 0.04;
-    windsockBase.receiveShadow = true;
-    windsock.add(windsockBase);
-    const poleGeometry = this._track(
-      new THREE.CylinderGeometry(0.1, 0.13, 6.4, 10),
-    );
-    const pole = new THREE.Mesh(poleGeometry, steelMaterial);
-    pole.position.y = 3.2;
-    pole.castShadow = true;
-    windsock.add(pole);
-    this.windsockPivot = new THREE.Group();
-    this.windsockPivot.position.set(0, 6.3, 0);
-    windsock.add(this.windsockPivot);
-    for (let i = 0; i < 6; i++) {
-      const segmentGeometry = this._track(
-        new THREE.CylinderGeometry(
-          0.36 - i * 0.045,
-          0.4 - i * 0.045,
-          0.48,
-          10,
-          1,
-          true,
-        ),
-      );
-      segmentGeometry.rotateZ(-Math.PI / 2);
-      segmentGeometry.translate(0.24, 0, 0);
-      const segmentMaterial = this._material({
-        color: i % 2 === 0 ? "#ff4500" : "#f8fafc",
-        side: THREE.DoubleSide,
-      });
-      const segment = new THREE.Mesh(segmentGeometry, segmentMaterial);
-      segment.position.x = i * 0.48;
-      segment.rotation.z = -0.08;
-      segment.castShadow = true;
-      this.windsockPivot.add(segment);
-    }
-    this.environmentRoot.add(windsock);
-
-    const coneGeometry = this._track(new THREE.ConeGeometry(0.22, 0.6, 10));
-    const coneMaterial = this._standardMaterial({
-      color: "#f97316",
-      roughness: 0.45,
-    });
-    const cones = new THREE.InstancedMesh(coneGeometry, coneMaterial, 8);
-    const conePositions = [
-      [-10, -112],
-      [10, -112],
-      [-10, 112],
-      [10, 112],
-      [-31, 8],
-      [-25, 8],
-      [25, 8],
-      [31, 8],
-    ];
-    const dummy = new THREE.Object3D();
-    conePositions.forEach(([x, z], index) => {
-      dummy.position.set(compactCoordinate(x), 0.35, compactCoordinate(z));
-      dummy.updateMatrix();
-      cones.setMatrixAt(index, dummy.matrix);
-    });
-    cones.instanceMatrix.needsUpdate = true;
-    cones.computeBoundingSphere();
-    cones.castShadow = true;
-    this.environmentRoot.add(cones);
-  }
-
-  _placeFieldInstances(count, isValid) {
-    const placed = [];
-    let attempts = 0;
-    while (placed.length < count && attempts < count * 5) {
-      attempts++;
-      const x = compactCoordinate((this.random() - 0.5) * 1300);
-      const z = compactCoordinate((this.random() - 0.5) * 1300);
-      if (!isValid(x, z)) continue;
-      placed.push({ x, z, y: this.terrainHeight(x, z), value: this.random() });
-    }
-    return placed;
-  }
-
-  _buildGrass() {
-    const geometry = this._track(createGrassGeometry());
-    const material = this._windMaterial(
-      { color: "#ffffff", side: THREE.DoubleSide },
-      0.72,
-    );
-    const grass = new THREE.InstancedMesh(geometry, material, GRASS_COUNT);
-    const positions = this._placeFieldInstances(GRASS_COUNT, (x, z) => {
-      const y = this.terrainHeight(x, z);
-      return !this.isExcluded(x, z) && y > -0.05 && y < 8;
-    });
-    const dummy = new THREE.Object3D();
-    const color = new THREE.Color();
-    const palette = ["#4d943e", "#5ca346", "#3e7e34", "#6db349", "#78ad44"];
-    positions.forEach((entry, index) => {
-      dummy.position.set(entry.x, entry.y, entry.z);
-      dummy.rotation.set(0, entry.value * Math.PI * 2, 0);
-      const scale = 0.72 + entry.value * 0.65;
-      dummy.scale.set(scale, 0.65 + entry.value * 0.8, scale);
-      dummy.updateMatrix();
-      grass.setMatrixAt(index, dummy.matrix);
-      color
-        .set(palette[index % palette.length])
-        .offsetHSL((entry.value - 0.5) * 0.04, 0, (entry.value - 0.5) * 0.07);
-      grass.setColorAt(index, color);
-    });
-    grass.count = positions.length;
-    grass.instanceMatrix.needsUpdate = true;
-    if (grass.instanceColor) grass.instanceColor.needsUpdate = true;
-    grass.computeBoundingSphere();
-    grass.receiveShadow = true;
-    this.environmentRoot.add(grass);
-  }
-
-  _buildFlowers() {
-    const geometry = this._track(createFlowerGeometry());
-    const palettes = [
-      ["#f472b6", "#ec4899", "#fbcfe8", "#db2777"],
-      ["#fbbf24", "#f59e0b", "#fde047", "#eab308"],
-      ["#fffbeb", "#fef9c3", "#f8fafc", "#fef08a"],
-      ["#60a5fa", "#a78bfa", "#38bdf8", "#c084fc"],
-      ["#fb7185", "#f43f5e", "#fdba74", "#ef4444"],
-    ];
-    const patches = [
-      [-78, 74],
-      [-48, 96],
-      [66, 82],
-      [88, 38],
-      [42, 126],
-      [-112, 38],
-      [118, 104],
-      [-18, 132],
-    ];
-    palettes.forEach((palette) => {
-      const material = this._windMaterial(
-        { color: "#ffffff", side: THREE.DoubleSide },
-        0.62,
-      );
-      const flowers = new THREE.InstancedMesh(
-        geometry,
-        material,
-        FLOWER_COUNT_PER_SPECIES,
-      );
-      const dummy = new THREE.Object3D();
-      const color = new THREE.Color();
-      let placed = 0;
-      let attempts = 0;
-      while (
-        placed < FLOWER_COUNT_PER_SPECIES &&
-        attempts < FLOWER_COUNT_PER_SPECIES * 8
-      ) {
-        attempts++;
-        let x;
-        let z;
-        if (this.random() < 0.82) {
-          const patch = patches[(this.random() * patches.length) | 0];
-          const angle = this.random() * Math.PI * 2;
-          const radius = Math.sqrt(this.random()) * (10 + this.random() * 16);
-          x = patch[0] + Math.cos(angle) * radius;
-          z = patch[1] + Math.sin(angle) * radius;
-        } else {
-          x = (this.random() - 0.5) * 1250;
-          z = (this.random() - 0.5) * 1250;
-        }
-        x = compactCoordinate(x);
-        z = compactCoordinate(z);
-        const y = this.terrainHeight(x, z);
-        if (this.isExcluded(x, z) || y < -0.05 || y > 12) continue;
-        dummy.position.set(x, y, z);
-        dummy.rotation.set(
-          (this.random() - 0.5) * 0.22,
-          this.random() * Math.PI * 2,
-          (this.random() - 0.5) * 0.22,
-        );
-        const scale = 0.65 + this.random() * 0.9;
-        dummy.scale.set(scale, scale * (0.82 + this.random() * 0.38), scale);
-        dummy.updateMatrix();
-        flowers.setMatrixAt(placed, dummy.matrix);
-        color
-          .set(palette[(this.random() * palette.length) | 0])
-          .offsetHSL(
-            (this.random() - 0.5) * 0.03,
-            0,
-            (this.random() - 0.5) * 0.06,
-          );
-        flowers.setColorAt(placed, color);
-        placed++;
-      }
-      flowers.count = placed;
-      flowers.instanceMatrix.needsUpdate = true;
-      if (flowers.instanceColor) flowers.instanceColor.needsUpdate = true;
-      flowers.computeBoundingSphere();
-      flowers.receiveShadow = true;
-      this.environmentRoot.add(flowers);
-    });
-  }
-
-  _buildTrees() {
-    const treeData = [];
-    const curated = [
-      [-74, 62, "oak"],
-      [-58, 84, "cherry"],
-      [-34, 78, "birch"],
-      [44, 72, "cherry"],
-      [66, 74, "birch"],
-      [82, 28, "oak"],
-      [42, 118, "pine"],
-      [-32, 124, "pine"],
-      [-88, -62, "pine"],
-      [-58, -74, "oak"],
-      [-30, -82, "birch"],
-      [4, -92, "pine"],
-      [36, -78, "oak"],
-      [68, -64, "cherry"],
-      [94, -46, "pine"],
-    ];
-    const addTree = (x, z, type, scale) => {
-      const compactX = compactCoordinate(x);
-      const compactZ = compactCoordinate(z);
-      if (
-        treeData.length >= TREE_COUNT ||
-        this.isExcluded(compactX, compactZ) ||
-        (Math.abs(compactX) < 22.5 && Math.abs(compactZ) < 70)
-      ) {
-        return;
-      }
-      treeData.push({ x: compactX, z: compactZ, type, scale });
-    };
-    curated.forEach(([x, z, type]) =>
-      addTree(x, z, type, 0.9 + this.random() * 0.5),
-    );
-    let attempts = 0;
-    while (treeData.length < TREE_COUNT && attempts < TREE_COUNT * 8) {
-      attempts++;
-      const angle = this.random() * Math.PI * 2;
-      const radius = 90 + this.random() * 440;
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      const type = ["oak", "pine", "oak", "birch", "cherry"][
-        treeData.length % 5
-      ];
-      addTree(x, z, type, 0.75 + this.random() * 0.9);
-    }
-
-    const trunkGeometry = this._track(
-      new THREE.CylinderGeometry(0.3, 0.46, 3.2, 8),
-    );
-    const crownGeometry = this._track(new THREE.DodecahedronGeometry(1, 1));
-    const pineGeometry = this._track(new THREE.ConeGeometry(1, 2.2, 9));
-    const trunkMaterial = this._standardMaterial({
-      color: "#5c4033",
-      roughness: 0.9,
-    });
-    const crownMaterial = this._windMaterial({ color: "#ffffff" }, 2.1);
-    const pineMaterial = this._windMaterial({ color: "#1b4332" }, 2.2);
-    const trunkData = [];
-    const crownData = [];
-    const pineData = [];
-    const crownPalette = [
-      "#2d6a32",
-      "#3b7a38",
-      "#498c3e",
-      "#265828",
-      "#fbcfe8",
-      "#65a30d",
-    ];
-    treeData.forEach((tree, index) => {
-      const y = this.terrainHeight(tree.x, tree.z);
-      trunkData.push({
-        x: tree.x,
-        y,
-        z: tree.z,
-        scale: tree.scale,
-        phase: index * 0.7,
-      });
-      if (tree.type === "pine") {
-        for (let tier = 0; tier < 3; tier++) {
-          pineData.push({
-            x: tree.x,
-            y: y + (2.5 + tier * 1.15) * tree.scale,
-            z: tree.z,
-            scale: tree.scale * (1 - tier * 0.16),
-            phase: index * 0.7,
-          });
-        }
-      } else {
-        const offsets = [
-          [0, 4.1, 0, 2.0],
-          [-1.2, 3.55, 0.7, 1.55],
-          [1.15, 3.7, -0.7, 1.6],
-          [0.2, 4.7, 0.1, 1.4],
-        ];
-        offsets.forEach(([dx, dy, dz, size], offset) => {
-          crownData.push({
-            x: tree.x + dx * tree.scale,
-            y: y + dy * tree.scale,
-            z: tree.z + dz * tree.scale,
-            scale: size * tree.scale,
-            phase: index * 0.7 + offset,
-            color:
-              tree.type === "cherry"
-                ? "#f9a8d4"
-                : tree.type === "birch"
-                  ? "#84cc16"
-                  : crownPalette[index % 4],
-          });
-        });
-      }
-    });
-
-    const trunks = new THREE.InstancedMesh(
-      trunkGeometry,
-      trunkMaterial,
-      trunkData.length,
-    );
-    const crowns = new THREE.InstancedMesh(
-      crownGeometry,
-      crownMaterial,
-      crownData.length,
-    );
-    const pines = new THREE.InstancedMesh(
-      pineGeometry,
-      pineMaterial,
-      pineData.length,
-    );
-    const dummy = new THREE.Object3D();
-    const color = new THREE.Color();
-    trunkData.forEach((entry, index) => {
-      dummy.position.set(entry.x, entry.y + 1.6 * entry.scale, entry.z);
-      dummy.rotation.set(0, entry.phase, 0);
-      dummy.scale.set(entry.scale, entry.scale, entry.scale);
-      dummy.updateMatrix();
-      trunks.setMatrixAt(index, dummy.matrix);
-    });
-    crownData.forEach((entry, index) => {
-      dummy.position.set(entry.x, entry.y, entry.z);
-      dummy.rotation.set(entry.phase * 0.7, entry.phase * 1.1, 0);
-      dummy.scale.set(entry.scale, entry.scale * 0.82, entry.scale);
-      dummy.updateMatrix();
-      crowns.setMatrixAt(index, dummy.matrix);
-      color.set(entry.color).offsetHSL(0, 0, (entry.phase % 1) * 0.08 - 0.04);
-      crowns.setColorAt(index, color);
-    });
-    pineData.forEach((entry, index) => {
-      dummy.position.set(entry.x, entry.y, entry.z);
-      dummy.rotation.set(0, entry.phase, 0);
-      dummy.scale.set(entry.scale, entry.scale, entry.scale);
-      dummy.updateMatrix();
-      pines.setMatrixAt(index, dummy.matrix);
-    });
-    for (const mesh of [trunks, crowns, pines]) {
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      mesh.computeBoundingSphere();
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      this.environmentRoot.add(mesh);
-    }
   }
 
   _buildClouds() {
-    const geometry = this._track(new THREE.DodecahedronGeometry(1, 1));
-    const material = this._material({
-      color: "#ffffff",
-      emissive: "#475569",
-      emissiveIntensity: 0.18,
-      transparent: true,
-      opacity: 0.93,
+    this.clouds = createClouds(this.rng, this.lowEnd ? 12 : 18);
+    for (const mesh of this.clouds.meshes) {
+      this.cloudRoot.add(this._trackObject(mesh));
+    }
+  }
+
+  _buildTerrain() {
+    this.textures = createAirfieldTextures();
+    for (const texture of Object.values(this.textures)) this._track(texture);
+    this.environmentRoot.add(
+      this._trackObject(createTerrain(this.textures.grass)),
+      this._trackObject(createHelipad(this.textures.helipad)),
+      this._trackObject(createDistantHills(this.rng)),
+    );
+  }
+
+  _buildVegetation() {
+    const heightAt = terrainHeight;
+    const trees = createTrees(this.rng, {
+      heightAt,
+      clearRadius: 58,
+      maxCount: this.lowEnd ? 220 : 400,
+      castShadow: true,
+      receiveShadow: !this.lowEnd,
     });
-    for (let i = 0; i < CLOUD_COUNT; i++) {
-      const group = new THREE.Group();
-      const puffCount = 3 + Math.floor(this.random() * 3);
-      for (let p = 0; p < puffCount; p++) {
-        const puff = new THREE.Mesh(geometry, material);
-        puff.position.set(
-          (p - (puffCount - 1) * 0.5) * (4 + this.random() * 2),
-          Math.cos((p / puffCount - 0.5) * Math.PI) * 2.2 +
-            (this.random() - 0.5) * 1.2,
-          (this.random() - 0.5) * 7,
-        );
-        puff.scale.set(
-          4.5 + this.random() * 4,
-          2.8 + this.random() * 2.5,
-          4 + this.random() * 3,
-        );
-        puff.rotation.y = this.random() * Math.PI;
-        group.add(puff);
-      }
-      group.position.set(
-        compactCoordinate((this.random() - 0.5) * 1000),
-        72 + this.random() * 70,
-        compactCoordinate((this.random() - 0.5) * 1000),
-      );
-      const baseScale = 0.72 + this.random() * 0.7;
-      group.scale.setScalar(baseScale);
-      this.cloudRoot.add(group);
-      this.clouds.push({
-        group,
-        baseY: group.position.y,
-        baseScale,
-        speed: 0.65 + this.random() * 0.7,
-        phase: this.random() * Math.PI * 2,
-      });
+    const bushes = createBushes(this.rng, {
+      heightAt,
+      padRadius: HELIPAD_RADIUS,
+      count: this.lowEnd ? 40 : 80,
+      castShadow: true,
+    });
+    const flowers = createFlowers(this.rng, {
+      heightAt,
+      padRadius: HELIPAD_RADIUS,
+      count: this.lowEnd ? 1200 : 2200,
+    });
+    for (const mesh of [...trees, ...bushes, ...flowers]) {
+      this.environmentRoot.add(this._trackObject(mesh));
     }
   }
 
-  _buildAmbientLife() {
-    const wingGeometry = this._track(new THREE.PlaneGeometry(0.14, 0.18));
-    wingGeometry.translate(0.07, 0, 0);
-    const butterflyMaterials = [
-      "#fbbf24",
-      "#38bdf8",
-      "#f472b6",
-      "#a78bfa",
-      "#fb7185",
-    ].map((color) => this._material({ color, side: THREE.DoubleSide }));
-    for (let i = 0; i < BUTTERFLY_COUNT; i++) {
-      const group = new THREE.Group();
-      const left = new THREE.Mesh(
-        wingGeometry,
-        butterflyMaterials[i % butterflyMaterials.length],
-      );
-      const right = new THREE.Mesh(
-        wingGeometry,
-        butterflyMaterials[i % butterflyMaterials.length],
-      );
-      right.scale.x = -1;
-      group.add(left, right);
-      const angle = (i / BUTTERFLY_COUNT) * Math.PI * 2;
-      const radius = compactCoordinate(22 + this.random() * 72);
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      const center = new THREE.Vector3(x, this.terrainHeight(x, z) + 1.1, z);
-      group.position.copy(center);
-      this.environmentRoot.add(group);
-      this.butterflies.push({
-        group,
-        left,
-        right,
-        center,
-        radius: compactCoordinate(1.8 + this.random() * 3.2),
-        speed: 0.7 + this.random() * 0.9,
-        phase: this.random() * Math.PI * 2,
-        flapSpeed: 12 + this.random() * 6,
-      });
+  _buildProps() {
+    // Windsock beside the pad — the wind blows along +X, like the clouds.
+    this.windsock = createWindsock();
+    this.windsock.root.position.set(HELIPAD_RADIUS + 9, 0, -8);
+    this.environmentRoot.add(this._trackObject(this.windsock.root));
+
+    this.environmentRoot.add(
+      this._trackObject(createFences(FENCE_LINES, terrainHeight, true)),
+    );
+
+    const pilotArea = createPilotArea(this.textures.gravel, HELIPAD_RADIUS, true);
+    for (const mesh of pilotArea) {
+      this.environmentRoot.add(this._trackObject(mesh));
     }
 
-    const pollenGeometry = this._track(new THREE.BufferGeometry());
-    const positions = new Float32Array(POLLEN_COUNT * 3);
-    for (let i = 0; i < POLLEN_COUNT; i++) {
-      positions[i * 3] = compactCoordinate((this.random() - 0.5) * 190);
-      positions[i * 3 + 1] = 0.8 + this.random() * 14;
-      positions[i * 3 + 2] = compactCoordinate((this.random() - 0.5) * 190);
-    }
-    pollenGeometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(positions, 3),
+    this.environmentRoot.add(
+      this._trackObject(createHayBales(this.rng, terrainHeight, true)),
     );
-    const pollenMaterial = this._track(
-      new THREE.PointsMaterial({
-        color: "#fef9c3",
-        size: 0.16,
-        transparent: true,
-        opacity: 0.65,
-      }),
-    );
-    this.pollen = new THREE.Points(pollenGeometry, pollenMaterial);
-    this.environmentRoot.add(this.pollen);
   }
 
+  /**
+   * Animates the environment. Called once per frame by the panel.
+   * @param {number} delta seconds since the previous frame
+   * @param {number} elapsed seconds since the panel was created
+   */
   update(delta, elapsed) {
     if (!this.scene || !this.camera) return;
-    const step = THREE.MathUtils.clamp(delta, 0, 0.1);
-    this.windUniforms.uTime.value = elapsed;
+    const step = clamp(Number.isFinite(delta) ? delta : 0, 0, 0.1);
+    this.elapsed = Number.isFinite(elapsed) ? elapsed : this.elapsed + step;
     this.sky.position.copy(this.camera.position);
-    this.cloudRoot.position.x = this.camera.position.x;
-    this.cloudRoot.position.z = this.camera.position.z;
-    const windRad = THREE.MathUtils.degToRad(WIND_DIRECTION);
-    const windCos = Math.cos(windRad);
-    const windSin = Math.sin(windRad);
-    const cloudLimit = compactCoordinate(500);
-    for (const cloud of this.clouds) {
-      cloud.group.position.x +=
-        windCos * step * (0.7 + WIND_SPEED * 0.55) * cloud.speed;
-      cloud.group.position.z +=
-        windSin * step * (0.7 + WIND_SPEED * 0.55) * cloud.speed;
-      if (cloud.group.position.x > cloudLimit)
-        cloud.group.position.x = -cloudLimit;
-      if (cloud.group.position.x < -cloudLimit)
-        cloud.group.position.x = cloudLimit;
-      if (cloud.group.position.z > cloudLimit)
-        cloud.group.position.z = -cloudLimit;
-      if (cloud.group.position.z < -cloudLimit)
-        cloud.group.position.z = cloudLimit;
-      cloud.group.position.y =
-        cloud.baseY + Math.sin(elapsed * 0.28 + cloud.phase) * 1.2;
-      cloud.group.scale.setScalar(cloud.baseScale);
-    }
-    if (this.water)
-      this.water.position.y = 0.02 + Math.sin(elapsed * 1.8) * 0.015;
-    if (this.windsockPivot) {
-      this.windsockPivot.rotation.y = -windRad + Math.sin(elapsed * 2.4) * 0.05;
-    }
-    for (const butterfly of this.butterflies) {
-      const t = elapsed * butterfly.speed + butterfly.phase;
-      const x = butterfly.center.x + Math.cos(t) * butterfly.radius;
-      const z = butterfly.center.z + Math.sin(t * 2) * butterfly.radius * 0.65;
-      const y = butterfly.center.y + Math.sin(t * 3.1) * 0.35;
-      butterfly.group.position.set(x, y, z);
-      this.butterflyTarget.set(
-        x + Math.cos(t + Math.PI / 2),
-        y,
-        z + Math.sin(t + Math.PI / 2),
-      );
-      this.environmentRoot.localToWorld(this.butterflyTarget);
-      butterfly.group.lookAt(this.butterflyTarget);
-      const flap =
-        Math.sin(elapsed * butterfly.flapSpeed + butterfly.phase) * 0.85;
-      butterfly.left.rotation.y = flap;
-      butterfly.right.rotation.y = -flap;
-    }
-    if (this.pollen) {
-      const attribute = this.pollen.geometry.attributes.position;
-      const pollenSpeed = step * (0.3 + WIND_SPEED * 0.28);
-      const pollenLimit = compactCoordinate(95);
-      for (let i = 0; i < attribute.count; i++) {
-        let x = attribute.getX(i) + windCos * pollenSpeed;
-        let y = attribute.getY(i) + Math.sin(elapsed * 1.2 + i) * 0.006;
-        let z = attribute.getZ(i) + windSin * pollenSpeed;
-        if (x > pollenLimit) x = -pollenLimit;
-        if (x < -pollenLimit) x = pollenLimit;
-        if (z > pollenLimit) z = -pollenLimit;
-        if (z < -pollenLimit) z = pollenLimit;
-        attribute.setXYZ(i, x, y, z);
-      }
-      attribute.needsUpdate = true;
-    }
+    this.clouds.update(step);
+    this.windsock.update(this.elapsed);
   }
 
+  /** Removes every object this environment added and frees its resources. */
   dispose() {
     if (!this.scene) return;
-    this.environmentRoot.traverse((object) => {
-      if (object.isInstancedMesh) object.dispose();
-    });
-    this.skyRoot.parent?.remove(this.skyRoot);
-    this.cloudRoot.parent?.remove(this.cloudRoot);
-    this.lightRoot.parent?.remove(this.lightRoot);
-    this.environmentRoot.parent?.remove(this.environmentRoot);
+    this.skyRoot.removeFromParent();
+    this.lightRoot.removeFromParent();
+    this.cloudRoot.removeFromParent();
+    this.environmentRoot.removeFromParent();
     this.scene.background = this.previousBackground;
     this.scene.fog = this.previousFog;
-    for (const resource of this.resources) disposeResource(resource);
+    const shadow = this.sunLight?.shadow;
+    if (shadow) {
+      shadow.map?.dispose();
+      shadow.map = null;
+      shadow.dispose?.();
+    }
+    for (const resource of this.resources) resource.dispose();
     this.resources.clear();
-    this.clouds.length = 0;
-    this.butterflies.length = 0;
     this.sky = null;
-    this.water = null;
-    this.pollen = null;
-    this.butterflyTarget = null;
-    this.windsockPivot = null;
+    this.clouds = null;
+    this.windsock = null;
+    this.sunLight = null;
+    this.textures = null;
     this.scene = null;
     this.worldGroup = null;
     this.camera = null;
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

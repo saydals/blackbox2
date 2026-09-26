@@ -88,7 +88,11 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useLogStore } from "../stores/log.js";
 import { useAppStore } from "../stores/app.js";
 import { buildReplayDataFromFlightLog } from "../blackbox3d_adapter.js";
-import { FreshMorningEnvironment } from "../three/freshMorningEnvironment.js";
+import {
+    FreshMorningEnvironment,
+    HELIPAD_MARK_HEIGHT,
+    HELIPAD_SURFACE_Y,
+} from "../three/freshMorningEnvironment.js";
 import { get as configStorageGet, set as configStorageSet } from "../../js/ConfigStorage.js";
 import Blackbox3DSettingsDialog from "./Blackbox3DSettingsDialog.vue";
 // @ts-expect-error Vite ?url asset import for the bundled heli model
@@ -230,7 +234,24 @@ let initialFrameYaw = 0; // 첫 프레임의 yaw를 저장하여 모델 로드 �
 // ---------------------------------------------------------------------------
 const WORLD_SCALE = 1.0;
 const S = WORLD_SCALE;
-const CAM_HOME = new THREE.Vector3(0, 5 * S, 11 * S);
+// Camera START position: the (0, 5, 11) home point rotated 180° about the
+// heli's yaw axis (Y) — X and Z negated — so the opening view looks at the
+// craft from the opposite side. Used by init(), applyFixedView() and the
+// onResetView() fallback.
+const CAM_HOME = new THREE.Vector3(0, 5 * S, -11 * S);
+
+// ---------------------------------------------------------------------------
+// Airfield model sizing (see three/freshMorningEnvironment.js)
+//
+// heli.glb measures 179.1 raw units nose→tail and its origin sits 21.5 units
+// above the lowest point (the skids). On the rf3d airfield the helicopter is
+// scaled so its total length equals half the height of the "H" painted on the
+// 15 m grass helipad, and it is lifted so the skids rest on the pad surface.
+// ---------------------------------------------------------------------------
+const HELI_RAW_LENGTH = 179.1;
+const HELI_RAW_BOTTOM = 21.5;
+const HELI_SCALE = HELIPAD_MARK_HEIGHT / 2 / HELI_RAW_LENGTH; // 4.5 m long
+const HELI_GROUND_OFFSET = HELI_RAW_BOTTOM * HELI_SCALE + HELIPAD_SURFACE_Y;
 
 // playback state
 let frames = [];
@@ -357,13 +378,13 @@ function loadAirplane() {
     const onLoaded = (gltf) => {
         if (generation !== modelGeneration) return; // superseded by a newer load
         airplane = gltf.scene;
-         // heli.glb raw bounds ≈ 390 units (Blender 단위). WORLD_SCALE=1.0 에서도
-          // 모델 시각적 크기를 기존 대비 2배로 키움 (0.05625 * 0.4 = 0.0225).
-          airplane.scale.set(0.05625 * 0.4, 0.05625 * 0.4, 0.05625 * 0.4);
+        // heli.glb 179.1 units nose→tail → HELI_SCALE gives it the target
+        // 4.5 m length (half the "H" painted on the helipad).
+        airplane.scale.setScalar(HELI_SCALE);
         airplane.traverse((o) => {
             if (o.isMesh) o.castShadow = true;
         });
-        airplane.position.y = 4 * S;
+        airplane.position.y = HELI_GROUND_OFFSET * S;
         // 첫 프레임의 yaw에 맞춰 초기 회전을 설정하여 applyFrame에서 180도 점프 방지
         airplane.rotation.y = -initialFrameYaw + yawOffset;
         scene.add(airplane);
@@ -920,7 +941,8 @@ function applyFrame(fr, opts = {}) {
     const holdAlt = !!opts.holdAlt && estWithoutGps.value && lastBuildBaroMode === "off";
     if (!holdAlt) {
         // GPS 미터를 그대로 적용 — WORLD_SCALE=1.0으로 원래 크기.
-        airplane.position.y = altRel * S + groundLift * S + 1.5 * S;
+        // HELI_GROUND_OFFSET lifts the model so its skids rest on the helipad.
+        airplane.position.y = altRel * S + groundLift * S + HELI_GROUND_OFFSET * S;
         if (hudAltRel) hudAltRel.textContent = altRel.toFixed(1);
     }
     const speed = Math.sqrt((fr.vx || 0) * (fr.vx || 0) + (fr.vz || 0) * (fr.vz || 0));
