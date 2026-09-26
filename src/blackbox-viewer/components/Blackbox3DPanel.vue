@@ -240,6 +240,14 @@ const S = WORLD_SCALE;
 // onResetView() fallback.
 const CAM_HOME = new THREE.Vector3(0, 5 * S, -11 * S);
 
+// GPS motion exaggeration (user request): the craft's logged displacement —
+// x/z and altitude — is rendered 1.5× larger so flights read clearly without
+// resizing the world. Visual ONLY: HUD numbers, A/B/waypoint markers, the
+// airfield and heli attitude keep their true scale, and the estimator/physics
+// still work in raw metres. Constant lifts (groundLift, pad rest offset) are
+// not motion, so they are left untouched — the heli still sits on the pad.
+const GPS_MOTION_SCALE = 1.5;
+
 // ---------------------------------------------------------------------------
 // Airfield model sizing (see three/freshMorningEnvironment.js)
 //
@@ -927,9 +935,13 @@ function frameAt(t) {
 function applyFrame(fr, opts = {}) {
     if (!airplane || !fr) return;
      // GPS 궤적(미터)을 그대로 적용 — WORLD_SCALE=1.0으로 원래 크기로.
-    airplane.position.x = fr.x * S;
-    airplane.position.z = fr.z * S;
-    const altRel = (fr.alt || 0) * 1;
+    // GPS_MOTION_SCALE: 움직임(상하좌우 변위)만 1.5배로 보이게 하는 렌더 전용 배율.
+    airplane.position.x = fr.x * S * GPS_MOTION_SCALE;
+    airplane.position.z = fr.z * S * GPS_MOTION_SCALE;
+    // Logs can report a slightly negative altitude (baro drift, landing dip).
+    // Clamp to 0 so neither the HUD readout nor the craft ever shows a
+    // height below the ground — 3D view only, the raw log is untouched.
+    const altRel = Math.max(0, fr.alt || 0);
     // With GPS the craft follows the logged altitude (starts on the ground).
     // Without GPS the estimator already starts at the configured start
     // altitude, so no extra lift; the +3 lift only applies to the legacy
@@ -941,8 +953,9 @@ function applyFrame(fr, opts = {}) {
     const holdAlt = !!opts.holdAlt && estWithoutGps.value && lastBuildBaroMode === "off";
     if (!holdAlt) {
         // GPS 미터를 그대로 적용 — WORLD_SCALE=1.0으로 원래 크기.
-        // HELI_GROUND_OFFSET lifts the model so its skids rest on the helipad.
-        airplane.position.y = altRel * S + groundLift * S + HELI_GROUND_OFFSET * S;
+        // GPS_MOTION_SCALE: 로그 고도의 변위만 1.5배 (groundLift·HELI_GROUND_OFFSET은
+        // 상수 리프트이므로 그대로 → 착지 시 스키드가 패드에 닿는 건 유지).
+        airplane.position.y = altRel * S * GPS_MOTION_SCALE + groundLift * S + HELI_GROUND_OFFSET * S;
         if (hudAltRel) hudAltRel.textContent = altRel.toFixed(1);
     }
     const speed = Math.sqrt((fr.vx || 0) * (fr.vx || 0) + (fr.vz || 0) * (fr.vz || 0));
