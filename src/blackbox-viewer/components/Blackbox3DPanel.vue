@@ -32,14 +32,17 @@
             <button
                 class="b3d-btn"
                 :class="{ 'b3d-btn--active': estWithoutGps }"
+                :disabled="hasGpsFlag"
                 :title="
-                    estWithoutGps
-                        ? 'GPS 없이 추정 재생 중 — 설정에서 GPS 재생으로 되돌리기 가능'
-                        : 'GPS 없이 재생: 콜렉티브 + 자세로 경로 추정 (GPS가 있는 로그에서는 비교용으로 강제 전환 가능)'
+                    hasGpsFlag
+                        ? '이 로그에는 GPS가 있어 추정 재생이 불필요합니다'
+                        : estWithoutGps
+                            ? 'GPS 없이 추정 재생 중 — 설정에서 GPS 재생으로 되돌리기 가능'
+                            : 'GPS 없이 재생: 콜렉티브 + 자세로 경로 추정'
                 "
                 @click="onWithoutGps"
             >
-                {{ estWithoutGps ? "No GPS · ON" : "No GPS" }}
+                {{ hasGpsFlag ? "No GPS" : (estWithoutGps ? "No GPS · ON" : "No GPS") }}
             </button>
             <button class="b3d-btn b3d-btn--close" title="Close 3D view" @click="emit('close')">X</button>
             <span id="b3dStatus" class="b3d-status">{{ status }}</span>
@@ -74,8 +77,6 @@
             v-model:open="settingsOpen"
             :settings="estSettings"
             :has-baro="hasBaro"
-            :has-gps="hasGpsFlag"
-            :force-estimate="forceEstimate"
             @apply="onSettingsApply"
         />
 
@@ -198,28 +199,20 @@ const settingsOpen = ref(false);
 // Reactive mirrors of non-reactive build state for the template.
 const hasGpsFlag = ref(false);
 const hasBaro = ref(false);
-// True while the current frames were produced by the estimator (no-GPS log,
-// or the user forced estimation on a GPS log for comparison).
-const estWithoutGps = ref(false);
-// User toggle: deliberately ignore the logged GPS and replay the estimated
-// path. Off by default and reset on log change — the logged GPS (when
-// present) stays the default replay source.
-const forceEstimate = ref(false);
-function onWithoutGps() {
-    settingsOpen.value = true;
-}
-function onSettingsApply(next) {
-    const { forceEstimate: force, ...settings } = next;
-    estSettings.value = { ...estSettings.value, ...settings };
-    forceEstimate.value = !!force;
-    configStorageSet({ [EST_KEY]: estSettings.value });
-    settingsOpen.value = false;
-    // Rebuild frames with the new parameters (keeps the panel paused at 0).
-    if (hasLog.value && logStore.flightLog) {
-        resetPlayback();
-        prepareFromActiveLog(false);
-    }
-}
+ const estWithoutGps = ref(false);
+ function onWithoutGps() {
+     settingsOpen.value = true;
+ }
+ function onSettingsApply(next) {
+     estSettings.value = { ...estSettings.value, ...next };
+     configStorageSet({ [EST_KEY]: estSettings.value });
+     settingsOpen.value = false;
+     // Rebuild frames with the new parameters (keeps the panel paused at 0).
+     if (hasLog.value && logStore.flightLog) {
+         resetPlayback();
+         prepareFromActiveLog(false);
+     }
+ }
 
 // ---------------------------------------------------------------------------
 // Scene setup
@@ -297,11 +290,9 @@ let lastPlayWall = 0;
 let sourceRows = [];
 let gpsFixes = [];
 // Build summary for the status line (set by buildFrames).
-let lastBuildEstimator = false;
-let lastBuildBaroMode = "";
-let lastBuildHover = 0;
-// v4: estimator-vs-GPS comparison stats (set when GPS is deliberately ignored).
-let lastBuildMatch = null;
+ let lastBuildEstimator = false;
+ let lastBuildBaroMode = "";
+ let lastBuildHover = 0;
 const PLAYBACK_HZ = 50;
 const PLAYBACK_STEP_US = 1e6 / PLAYBACK_HZ;
 
@@ -971,30 +962,23 @@ function buildFrames(data) {
     startTime = firstTime;
     endTime = lastTime;
 
-    // v4: the estimator runs when the log carries no GPS fixes OR the user
-    // forced estimation ("No GPS" switch) to compare against the logged GPS
-    // path. The physics core lives in buildEstimatedFrames() above — see the
+    // v4: the estimator runs when the log carries no GPS fixes.
+    // The physics core lives in buildEstimatedFrames() above — see the
     // ESTIMATOR-CORE block for the thrust model, the sign conventions and the
     // vertical/containment safety limits.
-    const useEstimator = !hasGps || forceEstimate.value;
+    const useEstimator = !hasGps;
     estWithoutGps.value = useEstimator;
     hasGpsFlag.value = hasGps;
     hasBaro.value = sourceRows.some((r) => r.baro != null);
     const s = estSettings.value;
-    lastBuildMatch = null;
     if (useEstimator) {
         const res = buildEstimatedFrames(sourceRows, s, {
-            // GPS를 강제로 무시한 재생에서는 추정 경로가 실제 GPS 경로와
-            // 얼마나 가까운지(평균 오차, 15m/10m 이내 비율) 함께 계산한다.
-            matchFixes: hasGps ? gpsFixes : null,
-            home: hasGps && homeLat != null ? { lat: homeLat, lon: homeLon } : null,
             hasBaro: hasBaro.value,
         });
         lastBuildHover = Math.round(res.hoverColl * 10) / 10;
         lastBuildEstimator = true;
         lastBuildBaroMode =
             s.verticalSource !== "none" && hasBaro.value ? (s.verticalSource === "baro" ? "raw" : "smoothed") : "off";
-        lastBuildMatch = res.match;
         frames = res.frames.map((f) => ({
             ...f,
             vx: 0,
@@ -1158,54 +1142,8 @@ function setPlaying(p) {
 }
 
 // ---------------------------------------------------------------------------
-// v4: GPS reference trail — GPS가 있는 로그에서 "No GPS"로 추정 재생을 강제한
-// 경우, 실제 GPS 경로를 반투명 파란 라인으로 함께 그려 눈으로 비교할 수
-// 있게 한다 (사용자 검증 워크플로: sample.bbl).
+// Playback
 // ---------------------------------------------------------------------------
-let gpsTrailLine = null;
-function clearGpsTrail() {
-    if (gpsTrailLine) {
-        scene?.remove(gpsTrailLine);
-        gpsTrailLine.geometry.dispose();
-        gpsTrailLine.material.dispose();
-        gpsTrailLine = null;
-    }
-}
-function buildGpsReferenceTrail() {
-    clearGpsTrail();
-    if (!scene || !hasGps || !lastBuildEstimator || !gpsFixes.length || !sourceRows.length) return;
-    let baroBase = null;
-    const pts = [];
-    const stepUs = 500000; // 2 Hz 샘플 — 표시용으로 충분
-    for (let t = startTime; t <= endTime; t += stepUs) {
-        const gps = interpolateGpsAt(gpsFixes, Math.min(t, endTime));
-        if (!gps) continue;
-        const row = interpolateRowsAt(sourceRows, Math.min(t, endTime));
-        const dLat = (gps.lat / 1e7 - homeLat) * 111320;
-        const dLon = (gps.lon / 1e7 - homeLon) * 111320 * Math.cos((homeLat * Math.PI) / 180);
-        let y = 0;
-        if (row && row.baro != null) {
-            if (baroBase == null) baroBase = row.baro;
-            y = Math.max(0, (row.baro - baroBase) / 100);
-        }
-        pts.push(
-            new THREE.Vector3(
-                dLon * S * GPS_MOTION_SCALE,
-                y * S * GPS_MOTION_SCALE + HELI_GROUND_OFFSET * S,
-                -dLat * S * GPS_MOTION_SCALE,
-            ),
-        );
-    }
-    if (pts.length < 2) return;
-    gpsTrailLine = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(pts),
-        new THREE.LineBasicMaterial({ color: 0x1e90ff, transparent: true, opacity: 0.6 }),
-    );
-    scene.add(gpsTrailLine);
-}
-
-// Reset the bottom playback controls (play button + seek bar + time) and any
-// in-flight replay state when a new log is loaded.
 function resetPlayback() {
     setPlaying(false);
     playT = 0;
@@ -1214,7 +1152,6 @@ function resetPlayback() {
     startTime = 0;
     endTime = 0;
     clearMarkers();
-    clearGpsTrail();
     if (seekRef.value) seekRef.value.value = 0;
     timeLabel.value = "0.0s";
     if (hudFile) hudFile.textContent = displayName.value;
@@ -1240,21 +1177,11 @@ function prepareFromActiveLog(autoplay) {
         initialFrameYaw = frames[0]?.yaw ?? 0;
         const markerCount = buildMarkers(data);
         applyAirfieldAlignment();
-        // v4: 추정 재생을 강제한 GPS 로그 — 실제 GPS 경로를 참조 라인으로 표시.
-        buildGpsReferenceTrail();
         playT = startTime;
         if (seekRef.value) seekRef.value.value = 0;
         const fr = frameAt(playT);
         applyFrame(fr);
-        // v4: 상태 문자열 — 추정 모드면 hover/baro 요약 + (강제 무시 시) GPS 대비
-        // 오차 통계(평균/15m 이내 비율)까지 표시한다.
         let estDesc = `flight estimated from collective+attitude (hover≈${lastBuildHover}, baro: ${lastBuildBaroMode})`;
-        if (lastBuildEstimator && hasGps) {
-            estDesc += ", GPS ignored";
-            if (lastBuildMatch) {
-                estDesc += ` — est vs GPS: mean ${lastBuildMatch.meanErr.toFixed(1)}m, ≤15m: ${(lastBuildMatch.cov15 * 100).toFixed(0)}%, ≤10m: ${(lastBuildMatch.cov10 * 100).toFixed(0)}%`;
-            }
-        }
         status.value = `Loaded: ${frames.length} frames (${PLAYBACK_HZ}Hz), ${lastBuildEstimator ? estDesc : `GPS interpolated from ${gpsFixes.length} fixes`}${markerCount ? `, ${markerCount} markers` : ""}`;
         timeLabel.value = "0.0s";
         setPlaying(!!autoplay);
@@ -1539,13 +1466,10 @@ onMounted(async () => {
     }
 });
 // A different log opened while the panel stays mounted → rebuild frames.
-// The forced no-GPS estimate is a per-log comparison tool: reset it so a
-// freshly opened GPS log replays its own GPS path first.
 watch(
     () => logStore.flightLog,
     () => {
         if (!rootRef.value || !renderer) return;
-        forceEstimate.value = false;
         resetPlayback();
         if (hasLog.value) {
             prepareFromActiveLog(false);

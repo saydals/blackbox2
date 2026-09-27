@@ -6,24 +6,6 @@
 
         <template #body>
             <div class="flex flex-col gap-3 text-xs">
-                <!-- ===== 추정 모드 (v4 최상단 스위치) ===== -->
-                <div class="flex flex-col gap-1 border-b border-[#2a323c] pb-2">
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input v-model="local.forceEstimate" type="checkbox" class="b3d-check" />
-                        <span class="font-semibold">GPS 없이 추정 재생</span>
-                    </label>
-                    <p class="text-dimmed leading-relaxed">
-                        <template v-if="hasGps">
-                            이 로그에는 GPS가 있습니다. 이 스위치를 켜면 GPS를 <b>무시</b>하고 콜렉티브 + 자세로 경로를 추정해
-                            재생합니다 — 실제 GPS 경로(파란 참조 라인)와 나란히 비교할 수 있고, 상태 표시줄에 오차 통계가
-                            표시됩니다.
-                        </template>
-                        <template v-else>
-                            이 로그에는 GPS 픽스가 없어 경로가 항상 추정 재생됩니다 (스위치와 무관).
-                        </template>
-                    </p>
-                </div>
-
                 <p class="text-dimmed leading-relaxed">
                     추정기는 스로틀(콜렉티브)과 자세를 적분해 비행 경로를 재구성합니다. 아래 파라미터로 실제 비행에 가깝게
                     조정할 수 있습니다.
@@ -182,11 +164,6 @@ const props = defineProps({
     settings: { type: Object, required: true },
     // Whether the current log carries barometer ("altitude") data.
     hasBaro: { type: Boolean, default: false },
-    // Whether the current log carries GPS fixes (v4: the estimate switch is
-    // meaningful only for GPS logs — without GPS the estimate always runs).
-    hasGps: { type: Boolean, default: false },
-    // Current "ignore logged GPS and estimate" state (v4 comparison toggle).
-    forceEstimate: { type: Boolean, default: false },
 });
 const emit = defineEmits(["update:open", "apply"]);
 
@@ -212,7 +189,6 @@ const DEFAULTS = {
     homeBias: 3,
     homeSoftRadius: 0.15,
     maneuverDamp: 1,
-    forceEstimate: false,
 };
 
 // Working copy edited by the dialog; re-seeded from the parent each time the
@@ -222,7 +198,7 @@ watch(
     () => props.open,
     (isOpen) => {
         if (isOpen) {
-            Object.assign(local, DEFAULTS, props.settings, { forceEstimate: props.forceEstimate });
+            Object.assign(local, DEFAULTS, props.settings);
             // If the log has no barometer, force the collective-estimate mode.
             if (!props.hasBaro && local.verticalSource !== "none") local.verticalSource = "none";
         }
@@ -230,7 +206,7 @@ watch(
 );
 
 function resetDefaults() {
-    Object.assign(local, DEFAULTS, { forceEstimate: props.forceEstimate });
+    Object.assign(local, DEFAULTS);
 }
 
 function apply() {
@@ -247,10 +223,5 @@ function apply() {
     background: #1b2027;
     color: #eee;
     padding: 4px 6px;
-}
-.b3d-check {
-    width: 16px;
-    height: 16px;
-    accent-color: #2db0e3;
 }
 </style>
