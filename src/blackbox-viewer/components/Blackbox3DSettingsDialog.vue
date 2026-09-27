@@ -7,11 +7,11 @@
         <template #body>
             <div class="flex flex-col gap-3 text-xs">
                 <p class="text-dimmed leading-relaxed">
-                    추정기는 스로틀(콜렉티브)과 자세를 적분해 비행 경로를 재구성합니다. 아래 파라미터로 실제 비행에 가깝게
-                    조정할 수 있습니다.
+                    The estimator reconstructs the flight path by integrating throttle (collective) and attitude.
+                    Adjust the parameters below to match real flight more closely.
                 </p>
 
-                <!-- ===== 수직 소스 ===== -->
+                <!-- ===== Vertical Source ===== -->
                 <div class="flex flex-col gap-1">
                     <span class="font-semibold">Vertical source</span>
                     <div class="flex flex-col gap-1 ml-2">
@@ -78,12 +78,13 @@
                     <input v-model.number="local.startAltitude" type="number" min="0" max="50" step="0.5" class="b3d-num" />
                 </div>
 
-                <!-- ===== 모션 리얼리즘 ===== -->
+                <!-- ===== Motion Realism ===== -->
                 <div class="mt-1 border-t border-[#2a323c] pt-2">
                     <span class="font-semibold">Motion realism</span>
                     <p class="text-dimmed ml-2 leading-relaxed">
-                        중립 밴드 안의 입력은 무시되고(제자리), 로터는 1차 지연으로 응답하며, 플립/롤 같은 3D 기동 중에는
-                        기체가 제자리에서 회전한다고 모델링합니다.
+                        Inputs within the neutral band are ignored (craft stays in place),
+                        the rotor responds with first-order lag, and during 3D maneuvers such as flips/rolls
+                        the craft is modeled as spinning in place.
                     </p>
                 </div>
                 <div class="flex items-center gap-3">
@@ -99,7 +100,7 @@
                     <input v-model.number="local.axisNeutralBand" type="number" min="0" max="30" step="1" class="b3d-num" />
                 </div>
                 <div class="flex items-center gap-3">
-                    <span class="w-40 text-dimmed" title="0 = 기동 감쇠 끔, 1 = 기본. 기울기 30°(플립/롤) 이상에서 수평 이동을 억제해 기체가 헬기장 밖으로 튀어나가지 않게 한다">Maneuver damping (3D flips)</span>
+                    <span class="w-40 text-dimmed" title="0 = maneuver damping off, 1 = default. Horizontal movement is suppressed at tilt ≥ 30° (flips/rolls) to prevent the craft from flying out of the helipad">Maneuver damping (3D flips)</span>
                     <input v-model.number="local.maneuverDamp" type="range" min="0" max="1" step="0.05" class="flex-1" />
                     <span class="w-10 text-right">{{ local.maneuverDamp.toFixed(2) }}</span>
                 </div>
@@ -116,16 +117,17 @@
                     <input v-model.number="local.reversePause" type="number" min="0" max="3" step="0.1" class="b3d-num" />
                 </div>
 
-                <!-- ===== 드리프트 제어 ===== -->
+                <!-- ===== Drift Control ===== -->
                 <div class="mt-1 border-t border-[#2a323c] pt-2">
                     <span class="font-semibold">Drift control (stay near home)</span>
                     <p class="text-dimmed ml-2 leading-relaxed">
-                        소프트 반경을 벗어나면 헬기장 중심 방향으로 2차 곡선 가중치의 복귀 가속이 걸립니다 — 안쪽에서는
-                        부드럽게, 150 m 하드 펜스 근처에서는 강하게 작동해 자연스럽게 돌아옵니다.
+                        Outside the soft radius, a quadratic-weighted return acceleration toward the
+                        helipad center is applied — gently in the inner area, strongly near the 150 m hard fence
+                        for a natural return.
                     </p>
                 </div>
                 <div class="flex items-center gap-3">
-                    <span class="w-40 text-dimmed" title="Maximum acceleration toward home, reached at the 150 m fence (v4: 3 m/s², 2차 램프)">Home bias (m/s²)</span>
+                    <span class="w-40 text-dimmed" title="Maximum acceleration toward home, reached at the 150 m fence (v4: 3 m/s², quadratic ramp)">Home bias (m/s²)</span>
                     <input v-model.number="local.homeBias" type="number" min="0" max="5" step="0.1" class="b3d-num" />
                 </div>
                 <div class="flex items-center gap-3">
@@ -133,13 +135,13 @@
                     <input v-model.number="local.homeSoftRadius" type="number" min="0" max="0.5" step="0.05" class="b3d-num" />
                 </div>
 
-                <!-- ===== 항상 적용되는 안전장치 (고정 스펙) ===== -->
+                <!-- ===== Safety Limits (always applied, fixed spec) ===== -->
                 <div class="mt-1 border-t border-[#2a323c] pt-2">
-                    <span class="font-semibold">Safety limits (항상 적용)</span>
+                    <span class="font-semibold">Safety limits (always applied)</span>
                     <ul class="text-dimmed ml-2 leading-relaxed list-disc list-outside">
-                        <li>고도 상한: 15 m AGL부터 상승 속도 점진 감쇠 → 50 m 완전 클램프</li>
-                        <li>그라운드 쿠션: 5 m 이하 하강 속도 점진 감쇠 → 0 m 하드 플로어</li>
-                        <li>헬기장 펜스: 중심에서 150 m 이상 벗어나지 않음 (하드)</li>
+                        <li>Altitude ceiling: rise speed gradually damped from 15 m AGL → fully clamped at 50 m</li>
+                        <li>Ground cushion: descent speed gradually damped below 5 m → 0 m hard floor</li>
+                        <li>Helipad fence: never more than 150 m from center (hard)</li>
                     </ul>
                 </div>
             </div>

@@ -35,14 +35,14 @@
                 :disabled="hasGpsFlag"
                 :title="
                     hasGpsFlag
-                        ? '이 로그에는 GPS가 있어 추정 재생이 불필요합니다'
+                        ? 'This log has GPS; estimation replay is unnecessary'
                         : estWithoutGps
-                            ? 'GPS 없이 추정 재생 중 — 설정에서 GPS 재생으로 되돌리기 가능'
-                            : 'GPS 없이 재생: 콜렉티브 + 자세로 경로 추정'
+                            ? 'Estimation replay without GPS — can switch back to GPS replay in settings'
+                            : 'Replay without GPS: path estimated from collective + attitude'
                 "
                 @click="onWithoutGps"
             >
-                {{ hasGpsFlag ? "No GPS" : (estWithoutGps ? "No GPS · ON" : "No GPS") }}
+                {{ "No GPS" }}
             </button>
             <button class="b3d-btn b3d-btn--close" title="Close 3D view" @click="emit('close')">X</button>
             <span id="b3dStatus" class="b3d-status">{{ status }}</span>
@@ -167,8 +167,8 @@ function onSelectView(mode) {
 // path against the logged GPS path — sample.bbl verification workflow.
 // ---------------------------------------------------------------------------
 const EST_KEY = "blackbox3dEstimatorSettings4"; // v4: quadratic home bias (3 m/s²), maneuver damping, vertical limits
-// v4 기본 파라미터 — 튜닝 근거: sample.bbl GPS 경로 매칭 (15m 이내 100%,
-// 평균 오차 6.3m — v3 기본값은 평균 26.7m, 최대 79m 드리프트).
+// v4 default parameters — tuning basis: sample.bbl GPS path matching (100% within 15m,
+// mean error 6.3m — v3 defaults had mean 26.7m, max 79m drift).
 const EST_DEFAULTS = {
     verticalSource: "baroSmooth", // "none" = collective estimate, "baro" = raw, "baroSmooth" = smoothed
     baroSmoothing: 0.8, // 0..0.95 EMA strength (baroSmooth only)
@@ -188,8 +188,8 @@ const EST_DEFAULTS = {
     homeSoftRadius: 0.15, // fraction of HOME_LIMIT (150m) where the bias starts — 22.5m (v3: 0.6)
     maneuverDamp: 1, // 0..1 — damping of horizontal motion during 3D maneuvers (flip/roll)
 };
-// EST_DEFAULTS는 ESTIMATOR-CORE 블록 안에도 정의한다 (테스트가 .vue에서 추출해
-// 검증하기 때문에 기본값과 알고리즘이 함께 추출되어야 드리프트가 없다).
+// EST_DEFAULTS is also defined inside the ESTIMATOR-CORE block (tests extract it from
+// the .vue file for verification, so defaults and algorithm must be extracted together to prevent drift).
 function loadEstimatorSettings() {
     const stored = configStorageGet(EST_KEY);
     return { ...EST_DEFAULTS, ...(stored[EST_KEY] || {}) };
@@ -551,9 +551,9 @@ function validGpsRow(row) {
     return row.lat != null && row.lon != null && Number.isFinite(row.lat) && Number.isFinite(row.lon);
 }
 // ESTIMATOR-CORE-START
-// v4 기본 파라미터는 EST_DEFAULTS에 정의되어 있습니다.
-// 튜닝 근거: sample.bbl GPS 경로 매칭 (15m 이내 100%,
-// 평균 오차 6.3m — v3 기본값은 평균 26.7m, 최대 79m 드리프트).
+// v4 default parameters are defined in EST_DEFAULTS.
+// Tuning basis: sample.bbl GPS path matching (100% within 15m,
+// mean error 6.3m — v3 defaults had mean 26.7m, max 79m drift).
 function shortestAngleDiff(target, current) {
     let d = (target - current) % (Math.PI * 2);
     if (d > Math.PI) d -= Math.PI * 2;
@@ -611,37 +611,37 @@ function interpolateGpsAt(fixes, t) {
     };
 }
 
-// --- v4 vertical safety & containment (고정 스펙) -------------------------
-// (2) 고도 상한: 15 m AGL부터 상승 가속을 점진 감쇠 → 50 m에서 완전 클램프.
-// (3) 그라운드 쿠션: 5 m 이하에서 하강 속도를 점진 감쇠 → 0 m 하드 플로어.
-// (1)/(4) 150 m 하드 펜스 유지 + 소프트 반경(기본 22.5 m) 안쪽부터 2차
-//     곡선 가중치의 home bias(최대 3 m/s²)로 자연스럽게 복귀.
-const EST_HZ = 50; // 추정기 적분 주파수 (재생 프레임과 동일)
+// --- v4 vertical safety & containment (fixed spec) ---
+// (2) Altitude ceiling: rise acceleration gradually damped from 15 m AGL → fully clamped at 50 m.
+// (3) Ground cushion: descent speed gradually damped below 5 m → 0 m hard floor.
+// (1)/(4) 150 m hard fence maintained + quadratic-weighted home bias (max 3 m/s²) starting from
+//     the soft radius (default 22.5 m) for a natural return to home.
+const EST_HZ = 50; // estimator integration frequency (same as playback frame rate)
 const EST_STEP_US = 1e6 / EST_HZ;
 const EST_G = 9.80665; // m/s²
-const HOME_LIMIT = 150; // m — 헬기장 중심에서의 하드 펜스 (유지)
-const ALT_SOFT_START = 15; // m AGL — 상승 감쇠 시작
-const ALT_HARD_LIMIT = 50; // m AGL — 하드 천장
-const GROUND_CUSHION_ALT = 5; // m AGL — 그라운드 쿠션 시작
-const GROUND_CUSHION_KEEP = 0.35; // z→0에서 잔여 하강속도 비율 (0=즉시 정지, 1=감쇠 없음)
-const MANEUVER_TILT_START = 30; // deg — 기동 감쇠 시작 (플립/롤 등 3D 기동)
-const MANEUVER_TILT_FULL = 50; // deg — 기동 감쇠 포화
-const MANEUVER_ACCEL_SUPPRESS = 0.85; // 기동 중 수평 가속 억제율 (0..1)
-const MANEUVER_EXTRA_DRAG = 3.5; // 1/s — 기동 중 추가 수평 감쇠
-const THRUST_LPF_ALPHA = 0.5; // 추력 벡터 1차 지연(로터 응답) — 50Hz 프레임당 EMA 계수
-const FLOAT_VZ_TRIGGER = 0.4; // m/s — hang 트리거 하강/상승 속도
-const REVERSE_SPEED_TRIGGER = 1; // m/s — settle 트리거 지면 속도
-const SETTLE_DRAG_MAX = 6; // 1/s — 반전 직후 추가 감쇠 피크
+const HOME_LIMIT = 150; // m — hard fence from helipad center
+const ALT_SOFT_START = 15; // m AGL — rise damping start
+const ALT_HARD_LIMIT = 50; // m AGL — hard ceiling
+const GROUND_CUSHION_ALT = 5; // m AGL — ground cushion start
+const GROUND_CUSHION_KEEP = 0.35; // residual descent ratio at z→0 (0=instant stop, 1=no damping)
+const MANEUVER_TILT_START = 30; // deg — maneuver damping start (flips/rolls)
+const MANEUVER_TILT_FULL = 50; // deg — maneuver damping saturation
+const MANEUVER_ACCEL_SUPPRESS = 0.85; // horizontal accel suppression during maneuvers (0..1)
+const MANEUVER_EXTRA_DRAG = 3.5; // 1/s — extra horizontal damping during maneuvers
+const THRUST_LPF_ALPHA = 0.5; // thrust vector 1st-order lag (rotor response) — EMA coeff per 50Hz frame
+const FLOAT_VZ_TRIGGER = 0.4; // m/s — hang trigger descent/rise speed
+const REVERSE_SPEED_TRIGGER = 1; // m/s — settle trigger ground speed
+const SETTLE_DRAG_MAX = 6; // 1/s — peak extra damping right after reversal
 const EST_DEG = Math.PI / 180;
 
-// Without-GPS 추정기 v4 — 콜렉티브 + 자세로 비행 경로를 적분.
-// 순수 함수 (THREE/Vue/store 의존 없음) — 테스트가 추출해 검증한다.
-// 반환: { frames: [{t,x,z,alt,roll,pitch,yaw,throttle}], hoverColl, match }
-//   - frames.x = 동(East), frames.z = -북 (GPS 분기와 동일 좌표)
-//   - match: GPS를 강제로 무시한 재생에서 실제 GPS 경로와의 오차 통계
+// Without-GPS estimator v4 — integrates flight path from collective + attitude.
+// Pure function (no THREE/Vue/store dependencies) — tests extract and verify it.
+// Returns: { frames: [{t,x,z,alt,roll,pitch,yaw,throttle}], hoverColl, match }
+//   - frames.x = East, frames.z = -North (same coordinate as GPS branch)
+//   - match: error statistics when GPS playback is forced to be ignored
 function buildEstimatedFrames(sourceRows, s, opts = {}) {
-    const matchFixes = opts.matchFixes || null; // GPS 강제 무시 시 비교용 fix 목록
-    const home = opts.home || null; // { lat, lon } (deg) — match 계산 기준점
+    const matchFixes = opts.matchFixes || null; // fix list for comparison when GPS is forced to be ignored
+    const home = opts.home || null; // { lat, lon } (deg) — reference point for match calculation
     const hasBaro = !!opts.hasBaro;
     const startTime = sourceRows[0]?.t ?? 0;
     const endTime = sourceRows[sourceRows.length - 1]?.t ?? startTime;
@@ -659,21 +659,21 @@ function buildEstimatedFrames(sourceRows, s, opts = {}) {
         if (cols.length) hoverColl = cols[Math.floor(cols.length / 2)];
     }
 
-    const est = { x: 0, y: 0, z: s.startAltitude, vx: 0, vy: 0, vz: 0 }; // x=동, y=북, z=AGL
+    const est = { x: 0, y: 0, z: s.startAltitude, vx: 0, vy: 0, vz: 0 }; // x=East, y=North, z=AGL
     const baroMode = s.verticalSource !== "none" && hasBaro;
     const baroAlpha = Math.max(0.05, 1 - Math.min(0.95, Math.max(0, s.baroSmoothing)));
     let baroBase = null;
     let baroSmooth = null;
-    let prevBaroAlt = null; // v4: 바로 표시 고도의 쿠션/천장 변환 기준
+    let prevBaroAlt = null; // v4: reference for cushion/ceiling conversion of displayed altitude
     const estDt = EST_STEP_US / 1e6;
     // --- v3 hang/settle state (per build) ---
     let floatT = 0;
     let settleT = 0;
     let collNeutralPrev = true;
     let floatAltHold = null;
-    // --- v4: 추력 벡터/콜렉티브 1차 지연 상태 (로터 응답 모델) ---
+    // --- v4: thrust vector/collective 1st-order lag state (rotor response model) ---
     let uxF = 0, uyF = 0, collF = 0;
-    // --- v4: match 통계 ---
+    // --- v4: match statistics ---
     let mSum = 0, mMax = 0, mCov15 = 0, mCov10 = 0, mN = 0;
     const softRadius = Math.min(HOME_LIMIT - 1, Math.max(0, s.homeSoftRadius) * HOME_LIMIT);
     const maneuverScale = Math.min(1, Math.max(0, s.maneuverDamp ?? 1));
@@ -694,10 +694,11 @@ function buildEstimatedFrames(sourceRows, s, opts = {}) {
         const aThrust = EST_G + collEff * 0.01 * s.fullPitchAccel;
 
         // --- Rotate body-up into the world (East, North, Up) via attitude ---
-        // v4 부호 수정: RF attitude[2]는 나침반 요(북쪽 0°, 시계방향)이므로
-        // (E,N,U) 좌표계의 Rz에는 -yaw를, RF roll 부호는 추력 동쪽 성분과
-        // 반대이므로 -roll를 사용해야 실제 이동 방향과 일치한다.
-        // (sample.bbl GPS 경로 매칭으로 검증: 평균 오차 26.7m → 6.3m)
+// v4 sign fix: RF attitude[2] is the compass bearing (0°=North, clockwise),
+// so for the Rz in the (E,N,U) coordinate system we use -yaw, and since the
+// RF roll sign is opposite to the thrust east component, we must use -roll
+// to match the actual movement direction.
+// (Verified with sample.bbl GPS path matching: mean error 26.7m → 6.3m)
         const roll = -row.roll, pitch = row.pitch, yaw = -row.yaw;
         const cP = Math.cos(roll);
         const sP = Math.sin(roll);
@@ -715,9 +716,9 @@ function buildEstimatedFrames(sourceRows, s, opts = {}) {
         const uyT = tiltMag > 1e-9 ? (uy / tiltMag) * tiltEff : 0;
         const uzT = Math.sqrt(Math.max(0, 1 - Math.min(1, tiltEff * tiltEff)));
 
-        // --- v4 rotor lag: 추력 벡터/콜렉티브를 1차 지연으로 스무딩 ---
-        // 실제 로터는 스틱 입력에 대해 수십 ms 지연으로 응답하므로 순간적인
-        // 자세 지터가 곧바로 위치로 적분되지 않게 한다.
+// --- v4 rotor lag: smooth the thrust vector/collective with 1st-order lag ---
+// The actual rotor responds with tens of ms delay to stick input, so instantaneous
+// attitude jitter does not get directly integrated into position.
         uxF += (uxT - uxF) * THRUST_LPF_ALPHA;
         uyF += (uyT - uyF) * THRUST_LPF_ALPHA;
         collF += (collEff - collF) * THRUST_LPF_ALPHA;
@@ -745,10 +746,11 @@ function buildEstimatedFrames(sourceRows, s, opts = {}) {
             settleT -= estDt;
         }
 
-        // --- v4 maneuver damping: 기울기 ≥ 30°(플립/롤 등 3D 기동) 구간에서는
-        // 기체가 제자리에서 회전한다고 모델링한다 — 수평 가속을 억제하고 강한
-        // 감쇠를 건다. 이게 없으면 플립 동안의 대형 기울기가 허위 추력으로
-        // 적분되어 기체가 헬기장 밖으로 멀리 튀어나간다 (v3 드리프트의 주원인).
+// --- v4 maneuver damping: in tilt ≥ 30° segments (flips/rolls etc.),
+// the craft is modeled as spinning in place — horizontal acceleration is
+// suppressed and strong damping is applied. Without this, large tilts during
+// flips would be integrated as false thrust, sending the craft far out of
+// the helipad (the main cause of v3 drift).
         let mnAccel = 0, mnDrag = 0;
         if (maneuverScale > 0 && tiltMag > mnStart) {
             const f = maneuverScale * Math.min(1, Math.max(0, (tiltMag - mnStart) / (mnFull - mnStart)));
@@ -766,7 +768,7 @@ function buildEstimatedFrames(sourceRows, s, opts = {}) {
             est.vz -= est.vz * Math.min(0.9, relief * 8 * estDt);
             floatT -= estDt;
         }
-        // v4 soft ceiling: 15 m AGL부터 상승 가속을 점진 감쇠.
+        // v4 soft ceiling: rise acceleration gradually damped from 15 m AGL.
         if (est.z > ALT_SOFT_START && az > 0) {
             az *= 1 - Math.min(1, (est.z - ALT_SOFT_START) / (ALT_HARD_LIMIT - ALT_SOFT_START));
         }
@@ -779,12 +781,12 @@ function buildEstimatedFrames(sourceRows, s, opts = {}) {
         est.y += est.vy * estDt;
         est.z += est.vz * estDt;
 
-        // v4 ground cushion: 5 m 이하에서 하강 속도를 점진 감쇠.
+        // v4 ground cushion: descent speed gradually damped below 5 m.
         if (est.z < GROUND_CUSHION_ALT && est.vz < 0) {
             const cf = Math.max(0, Math.min(1, est.z / GROUND_CUSHION_ALT));
             est.vz *= GROUND_CUSHION_KEEP + (1 - GROUND_CUSHION_KEEP) * cf;
         }
-        // 0 m 하드 플로어 / 50 m 하드 천장.
+        // 0 m hard floor / 50 m hard ceiling.
         if (est.z < 0) {
             est.z = 0;
             if (est.vz < 0) est.vz = 0;
@@ -794,20 +796,21 @@ function buildEstimatedFrames(sourceRows, s, opts = {}) {
             if (est.vz > 0) est.vz = 0;
         }
 
-        // --- v4 drift control(강화): home bias를 소프트 반경(기본 22.5 m)
-        // 안쪽부터 2차 곡선 가중치로 걸고 최대 가속도를 3 m/s²로 상향.
-        // 펜스 근처에서는 강하게, 안쪽에서는 부드럽게 작동해 자연스럽게
-        // 헬기장 중심으로 돌아온다 (v3: 선형 w, 최대 1 m/s²). ---
+// --- v4 drift control (enhanced): home bias with quadratic weighting starts
+// from the soft radius (default 22.5 m), max acceleration raised to 3 m/s².
+// Strong near the fence, gentle inside — returns naturally to helipad center
+// (v3: linear w, max 1 m/s²). ---
         const dist = Math.hypot(est.x, est.y);
         if (dist > softRadius && dist > 1e-6) {
             const w = Math.min(1, (dist - softRadius) / Math.max(1, HOME_LIMIT - softRadius));
-            const bias = Math.max(0, s.homeBias) * w * w; // 2차 램프 (v3: 선형 w)
+            const bias = Math.max(0, s.homeBias) * w * w; // quadratic ramp (v3: linear w)
             est.vx -= (est.x / dist) * bias * estDt;
             est.vy -= (est.y / dist) * bias * estDt;
         }
 
-        // --- Field fence (150 m, 유지): 경계에 닿으면 외측 속도 성분만
-        // 제거해 경계를 따라 미끄러지듯 이동한다. ---
+// --- Field fence (150 m, maintained): when touching the boundary, only
+// the outward velocity component is removed so the craft slides along
+// the fence. ---
         const distFence = Math.hypot(est.x, est.y);
         if (distFence > HOME_LIMIT) {
             const nx = est.x / distFence;
@@ -839,9 +842,9 @@ function buildEstimatedFrames(sourceRows, s, opts = {}) {
             } else {
                 floatAltHold = null;
             }
-            // v4: 표시 고도에도 동일한 수직 안전장치를 적용한다 —
-            // 5 m 이하 하강량은 그라운드 쿠션 비율로 축소,
-            // 15 m 이상 상승량은 소프트 천장 비율로 축소 후 [0, 50] 클램프.
+// v4: apply the same vertical safety limits to the displayed altitude —
+// descent amounts below 5 m are reduced by the ground cushion ratio,
+// rise amounts above 15 m are reduced by the soft ceiling ratio, then clamped to [0, 50].
             if (prevBaroAlt != null) {
                 const d = baroAlt - prevBaroAlt;
                 if (d < 0 && prevBaroAlt > 0 && prevBaroAlt < GROUND_CUSHION_ALT) {
@@ -856,8 +859,9 @@ function buildEstimatedFrames(sourceRows, s, opts = {}) {
             frameAlt = Math.min(ALT_HARD_LIMIT, Math.max(0, baroAlt));
         }
 
-        // --- v4: GPS 강제 무시 검증 통계 — GPS가 있는 로그를 끄고 재생할 때
-        // 추정 경로가 실제 GPS 경로와 얼마나 가까운지 측정한다. ---
+// --- v4: GPS forced-ignore verification statistics — when replaying a log
+// that has GPS with GPS ignored, measure how close the estimated path
+// is to the actual GPS path. ---
         if (matchFixes && matchFixes.length && home) {
             const gps = interpolateGpsAt(matchFixes, Math.min(t, endTime));
             const dLat = (gps.lat / 1e7 - home.lat) * 111320;
@@ -872,8 +876,8 @@ function buildEstimatedFrames(sourceRows, s, opts = {}) {
 
         out.push({
             t: Math.min(t, endTime),
-            x: est.x, // 동(East)
-            z: -est.y, // 장면 z = -북 (GPS 분기와 동일)
+            x: est.x, // East
+            z: -est.y, // scene z = -North (same as GPS branch)
             alt: frameAlt,
             roll: row.roll,
             pitch: row.pitch,
@@ -1081,8 +1085,8 @@ function frameAt(t) {
 
 function applyFrame(fr, opts = {}) {
     if (!airplane || !fr) return;
-     // GPS 궤적(미터)을 그대로 적용 — WORLD_SCALE=1.0으로 원래 크기로.
-    // GPS_MOTION_SCALE: 움직임(상하좌우 변위)만 1.5배로 보이게 하는 렌더 전용 배율.
+// Apply the GPS trajectory (metres) directly — WORLD_SCALE=1.0 keeps original size.
+// GPS_MOTION_SCALE: only displacement (movement) is rendered 1.5× larger; this is a render-only scale.
     airplane.position.x = fr.x * S * GPS_MOTION_SCALE;
     airplane.position.z = fr.z * S * GPS_MOTION_SCALE;
     // Logs can report a slightly negative altitude (baro drift, landing dip).
@@ -1099,9 +1103,10 @@ function applyFrame(fr, opts = {}) {
     // following the (unreliable) collective-integrated altitude.
     const holdAlt = !!opts.holdAlt && estWithoutGps.value && lastBuildBaroMode === "off";
     if (!holdAlt) {
-        // GPS 미터를 그대로 적용 — WORLD_SCALE=1.0으로 원래 크기.
-        // GPS_MOTION_SCALE: 로그 고도의 변위만 1.5배 (groundLift·HELI_GROUND_OFFSET은
-        // 상수 리프트이므로 그대로 → 착지 시 스키드가 패드에 닿는 건 유지).
+        // GPS metres applied directly — WORLD_SCALE=1.0 keeps original size.
+        // GPS_MOTION_SCALE: only the logged altitude displacement is 1.5×
+        // (groundLift·HELI_GROUND_OFFSET are constant lifts, so they stay
+        // untouched → the heli still sits on the pad at landing).
         airplane.position.y = altRel * S * GPS_MOTION_SCALE + groundLift * S + HELI_GROUND_OFFSET * S;
         if (hudAltRel) hudAltRel.textContent = altRel.toFixed(1);
     }
@@ -1219,10 +1224,13 @@ function onTogglePlay() {
     }
     setPlaying(!playingFlag);
 }
-// Fixed View: 관찰자는 지상(CAM_HOME)에 고정, 기체를 바라봄.
-// 카메라 위치는 움직이지 않고 controls.target만 기체를 향해 회전한다.
-// 기체가 멀어지면 작게 보이는 것이 실제와 같음 — 확대/축소(줌)는
-// Dynamic 모드에서만 수행한다.
+// Fixed View: the observer is fixed on the ground (CAM_HOME), looking at the craft.
+// The camera position does not move; only controls.target rotates to face the craft.
+// When the craft moves away, it appears smaller — just like in reality.
+// Zooming is only performed in Dynamic mode.
+// Fixed View: the camera position stays in place, only the look-at direction
+// rotates toward the craft. When the craft moves away, it appears smaller
+// — matching real-world perspective. Zooming is only done in Dynamic mode.
 function applyFixedView() {
     if (!camera || !controls) return;
     camera.position.copy(CAM_HOME);
@@ -1234,8 +1242,9 @@ function applyFixedView() {
         camTargetY = 2 * S;
     }
     controls.update();
-    // 카메라 위치는 CAM_HOME으로 초기화하되, 사용자가 마우스로 움직일 수 있도록
-    // animate 루프에서 controls.update() 후 camera.lookAt()으로 시야를 추적한다.
+// camera position is reset to CAM_HOME, but the user can still move it
+// with the mouse — the animate loop tracks the view via lookAt after
+// controls.update().
 }
 // Snap the chase camera onto the craft's current position (keeping the
 // user's orbit offset). Used when scrubbing the timeline / resetting the
@@ -1243,7 +1252,8 @@ function applyFixedView() {
 function snapCameraToCraft() {
     if (!camera || !controls || !airplane) return;
     if (viewMode.value === "fixed") {
-        // 고정시점: 카메라 위치는 그대로, 바라보는 방향만 기체로.
+        // Fixed viewpoint: camera position stays the same, only the look-at direction
+// changes to face the craft.
         controls.target.copy(airplane.position);
         camTargetY = airplane.position.y;
         controls.update();
@@ -1261,7 +1271,7 @@ function onResetView() {
     if (airplane) {
         // Re-frame the craft wherever it is on the (possibly long) estimated
         // path — a fixed home viewpoint would leave it out of frame.
-         // WORLD_SCALE 적용: 오프셋도 1/1 (25/55).
+         // WORLD_SCALE applied: offsets are also 1/1 (25/55).
         camera.position.set(airplane.position.x, airplane.position.y + 25 * S, airplane.position.z + 55 * S);
         controls.target.copy(airplane.position);
         camTargetY = airplane.position.y;
@@ -1323,8 +1333,9 @@ function animate(ts) {
         applyFrame(fr);
         if (airplane) {
             if (viewMode.value === "fixed") {
-                // 고정시점: 사용자가 마우스로 카메라를 움직일 수 있음.
-                // controls.target을 기체로 설정하고, update 후 lookAt으로 시야 추적.
+// Fixed viewpoint: the user can move the camera with the mouse.
+// controls.target is set to the craft, and after update the view is
+// tracked via lookAt.
                 controls.target.copy(airplane.position);
             } else {
                 const tx = airplane.position.x;
