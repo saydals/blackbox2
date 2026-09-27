@@ -166,7 +166,28 @@ function onSelectView(mode) {
 // path against the logged GPS path — sample.bbl verification workflow.
 // ---------------------------------------------------------------------------
 const EST_KEY = "blackbox3dEstimatorSettings4"; // v4: quadratic home bias (3 m/s²), maneuver damping, vertical limits
-// EST_DEFAULTS는 ESTIMATOR-CORE 블록 안에 정의한다 (테스트가 .vue에서 추출해
+// v4 기본 파라미터 — 튜닝 근거: sample.bbl GPS 경로 매칭 (15m 이내 100%,
+// 평균 오차 6.3m — v3 기본값은 평균 26.7m, 최대 79m 드리프트).
+const EST_DEFAULTS = {
+    verticalSource: "baroSmooth", // "none" = collective estimate, "baro" = raw, "baroSmooth" = smoothed
+    baroSmoothing: 0.8, // 0..0.95 EMA strength (baroSmooth only)
+    autoHover: true, // calibrate the hover point from the log's collective median
+    hoverCollective: 0, // manual hover point (autoHover=false only)
+    fullPitchAccel: 10, // m/s² extra accel at 100% collective
+    drag: 0.2, // linear velocity damping (1/s) — bounds drift (v3: 0.15)
+    startAltitude: 3, // m above ground at t=0 (no GPS, collective mode)
+    // --- v3: heli-like motion refinement ---
+    neutralBand: 10, // collective units around the hover point that count as neutral
+    axisNeutralBand: 8, // deg of tilt below which no horizontal translation is driven
+    gravityRelief: 0.7, // 0..1 — vertical accel cancelled at the start of the hang
+    floatTime: 2, // s the craft "hangs" after collective returns to neutral
+    reversePause: 0.6, // s of extra horizontal damping after a cyclic reversal
+    // --- v4: containment + acro ---
+    homeBias: 3, // m/s² max acceleration toward home (v3: 1, linear ramp)
+    homeSoftRadius: 0.15, // fraction of HOME_LIMIT (150m) where the bias starts — 22.5m (v3: 0.6)
+    maneuverDamp: 1, // 0..1 — damping of horizontal motion during 3D maneuvers (flip/roll)
+};
+// EST_DEFAULTS는 ESTIMATOR-CORE 블록 안에도 정의한다 (테스트가 .vue에서 추출해
 // 검증하기 때문에 기본값과 알고리즘이 함께 추출되어야 드리프트가 없다).
 function loadEstimatorSettings() {
     const stored = configStorageGet(EST_KEY);
@@ -539,27 +560,9 @@ function validGpsRow(row) {
     return row.lat != null && row.lon != null && Number.isFinite(row.lat) && Number.isFinite(row.lon);
 }
 // ESTIMATOR-CORE-START
-// v4 기본 파라미터 — 튜닝 근거: sample.bbl GPS 경로 매칭 (15m 이내 100%,
+// v4 기본 파라미터는 EST_DEFAULTS에 정의되어 있습니다.
+// 튜닝 근거: sample.bbl GPS 경로 매칭 (15m 이내 100%,
 // 평균 오차 6.3m — v3 기본값은 평균 26.7m, 최대 79m 드리프트).
-const EST_DEFAULTS = {
-    verticalSource: "baroSmooth", // "none" = collective estimate, "baro" = raw, "baroSmooth" = smoothed
-    baroSmoothing: 0.8, // 0..0.95 EMA strength (baroSmooth only)
-    autoHover: true, // calibrate the hover point from the log's collective median
-    hoverCollective: 0, // manual hover point (autoHover=false only)
-    fullPitchAccel: 10, // m/s² extra accel at 100% collective
-    drag: 0.2, // linear velocity damping (1/s) — bounds drift (v3: 0.15)
-    startAltitude: 3, // m above ground at t=0 (no GPS, collective mode)
-    // --- v3: heli-like motion refinement ---
-    neutralBand: 10, // collective units around the hover point that count as neutral
-    axisNeutralBand: 8, // deg of tilt below which no horizontal translation is driven
-    gravityRelief: 0.7, // 0..1 — vertical accel cancelled at the start of the hang
-    floatTime: 2, // s the craft "hangs" after collective returns to neutral
-    reversePause: 0.6, // s of extra horizontal damping after a cyclic reversal
-    // --- v4: containment + acro ---
-    homeBias: 3, // m/s² max acceleration toward home (v3: 1, linear ramp)
-    homeSoftRadius: 0.15, // fraction of HOME_LIMIT (150m) where the bias starts — 22.5m (v3: 0.6)
-    maneuverDamp: 1, // 0..1 — damping of horizontal motion during 3D maneuvers (flip/roll)
-};
 function shortestAngleDiff(target, current) {
     let d = (target - current) % (Math.PI * 2);
     if (d > Math.PI) d -= Math.PI * 2;
