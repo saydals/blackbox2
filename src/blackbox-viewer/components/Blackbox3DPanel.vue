@@ -32,11 +32,14 @@
             <button
                 class="b3d-btn"
                 :class="{ 'b3d-btn--active': estWithoutGps }"
-                :disabled="hasGpsFlag"
-                :title="hasGpsFlag ? 'Log has GPS — estimated replay not needed' : 'Replay without GPS: estimate the flight path from collective + attitude'"
+                :title="
+                    estWithoutGps
+                        ? 'GPS 없이 추정 재생 중 — 설정에서 GPS 재생으로 되돌리기 가능'
+                        : 'GPS 없이 재생: 콜렉티브 + 자세로 경로 추정 (GPS가 있는 로그에서는 비교용으로 강제 전환 가능)'
+                "
                 @click="onWithoutGps"
             >
-                No GPS
+                {{ estWithoutGps ? "No GPS · ON" : "No GPS" }}
             </button>
             <button class="b3d-btn b3d-btn--close" title="Close 3D view" @click="emit('close')">X</button>
             <span id="b3dStatus" class="b3d-status">{{ status }}</span>
@@ -71,6 +74,8 @@
             v-model:open="settingsOpen"
             :settings="estSettings"
             :has-baro="hasBaro"
+            :has-gps="hasGpsFlag"
+            :force-estimate="forceEstimate"
             @apply="onSettingsApply"
         />
 
@@ -156,27 +161,13 @@ function onSelectView(mode) {
 
 // ---------------------------------------------------------------------------
 // Without-GPS flight estimation (dead reckoning from collective + attitude).
-// Runs automatically whenever the log carries no GPS fixes; the toolbar
-// "Without GPS" button just opens the parameter dialog.
+// v4: runs when the log carries no GPS fixes OR when the user deliberately
+// forces it ("No GPS" button → estimate switch) to compare the estimated
+// path against the logged GPS path — sample.bbl verification workflow.
 // ---------------------------------------------------------------------------
-const EST_KEY = "blackbox3dEstimatorSettings3"; // v3: neutral bands, hang, settle, drift control
-const EST_DEFAULTS = {
-    verticalSource: "baroSmooth", // "none" = collective estimate, "baro" = raw, "baroSmooth" = smoothed
-    baroSmoothing: 0.8, // 0..0.95 EMA strength (baroSmooth only)
-    autoHover: true, // calibrate the hover point from the log's collective median
-    hoverCollective: 0, // manual hover point (autoHover=false only)
-    fullPitchAccel: 10, // m/s² extra accel at 100% collective
-    drag: 0.15, // linear velocity damping (1/s) — bounds drift
-    startAltitude: 3, // m above ground at t=0 (no GPS)
-    // --- v3: heli-like motion refinement ---
-    neutralBand: 10, // collective units around the hover point that count as neutral
-    axisNeutralBand: 8, // deg of tilt below which no horizontal translation is driven
-    gravityRelief: 0.7, // 0..1 — vertical accel cancelled at the start of the hang
-    floatTime: 2, // s the craft "hangs" after collective returns to neutral
-    reversePause: 0.6, // s of extra horizontal damping after a cyclic reversal
-    homeBias: 1, // m/s² max acceleration steering the craft back to home
-    homeSoftRadius: 0.6, // fraction of HOME_LIMIT where the home bias starts
-};
+const EST_KEY = "blackbox3dEstimatorSettings4"; // v4: quadratic home bias (3 m/s²), maneuver damping, vertical limits
+// EST_DEFAULTS는 ESTIMATOR-CORE 블록 안에 정의한다 (테스트가 .vue에서 추출해
+// 검증하기 때문에 기본값과 알고리즘이 함께 추출되어야 드리프트가 없다).
 function loadEstimatorSettings() {
     const stored = configStorageGet(EST_KEY);
     return { ...EST_DEFAULTS, ...(stored[EST_KEY] || {}) };
@@ -186,13 +177,20 @@ const settingsOpen = ref(false);
 // Reactive mirrors of non-reactive build state for the template.
 const hasGpsFlag = ref(false);
 const hasBaro = ref(false);
-// True while the current frames were produced by the estimator (no-GPS log).
+// True while the current frames were produced by the estimator (no-GPS log,
+// or the user forced estimation on a GPS log for comparison).
 const estWithoutGps = ref(false);
+// User toggle: deliberately ignore the logged GPS and replay the estimated
+// path. Off by default and reset on log change — the logged GPS (when
+// present) stays the default replay source.
+const forceEstimate = ref(false);
 function onWithoutGps() {
     settingsOpen.value = true;
 }
 function onSettingsApply(next) {
-    estSettings.value = { ...estSettings.value, ...next };
+    const { forceEstimate: force, ...settings } = next;
+    estSettings.value = { ...estSettings.value, ...settings };
+    forceEstimate.value = !!force;
     configStorageSet({ [EST_KEY]: estSettings.value });
     settingsOpen.value = false;
     // Rebuild frames with the new parameters (keeps the panel paused at 0).
@@ -272,14 +270,8 @@ let hasGps = false;
 let playingFlag = false;
 let playT = 0;
 let lastPlayWall = 0;
-// Without-GPS flight estimation: dead-reckoned paths drift fast, so the
-// estimated craft is fenced to this radius (metres) around the home point.
-// v3: raised 100 → 150 so arena-sized flights stay inside the fence.
-const HOME_LIMIT = 150;
-// v3: hang/settle trigger thresholds and the settle damping spike.
-const FLOAT_VZ_TRIGGER = 0.4; // m/s of vertical speed for the hang to trigger
-const REVERSE_SPEED_TRIGGER = 1; // m/s of ground speed for the settle to trigger
-const SETTLE_DRAG_MAX = 6; // 1/s extra horizontal damping right after a reversal
+// Without-GPS fence/estimator constants now live in the estimator core block
+// below (ESTIMATOR-CORE-START … END) so tests can extract and verify them.
 
 let sourceRows = [];
 let gpsFixes = [];
@@ -287,6 +279,8 @@ let gpsFixes = [];
 let lastBuildEstimator = false;
 let lastBuildBaroMode = "";
 let lastBuildHover = 0;
+// v4: estimator-vs-GPS comparison stats (set when GPS is deliberately ignored).
+let lastBuildMatch = null;
 const PLAYBACK_HZ = 50;
 const PLAYBACK_STEP_US = 1e6 / PLAYBACK_HZ;
 
@@ -534,10 +528,38 @@ function updateABMarkers(fr) {
 }
 // ---------------------------------------------------------------------------
 // Frame building (from adapted FlightLog data)
+//
+// v4 — the estimator core below is a self-contained pure block delimited by
+// ESTIMATOR-CORE-START/END markers. Tests (tests/zz_final_verify.test.js)
+// extract this exact region out of the .vue file and run it against the
+// sample.bbl GPS ground truth, so the shipped code is literally the verified
+// code (no copy drift).
 // ---------------------------------------------------------------------------
 function validGpsRow(row) {
     return row.lat != null && row.lon != null && Number.isFinite(row.lat) && Number.isFinite(row.lon);
 }
+// ESTIMATOR-CORE-START
+// v4 기본 파라미터 — 튜닝 근거: sample.bbl GPS 경로 매칭 (15m 이내 100%,
+// 평균 오차 6.3m — v3 기본값은 평균 26.7m, 최대 79m 드리프트).
+const EST_DEFAULTS = {
+    verticalSource: "baroSmooth", // "none" = collective estimate, "baro" = raw, "baroSmooth" = smoothed
+    baroSmoothing: 0.8, // 0..0.95 EMA strength (baroSmooth only)
+    autoHover: true, // calibrate the hover point from the log's collective median
+    hoverCollective: 0, // manual hover point (autoHover=false only)
+    fullPitchAccel: 10, // m/s² extra accel at 100% collective
+    drag: 0.2, // linear velocity damping (1/s) — bounds drift (v3: 0.15)
+    startAltitude: 3, // m above ground at t=0 (no GPS, collective mode)
+    // --- v3: heli-like motion refinement ---
+    neutralBand: 10, // collective units around the hover point that count as neutral
+    axisNeutralBand: 8, // deg of tilt below which no horizontal translation is driven
+    gravityRelief: 0.7, // 0..1 — vertical accel cancelled at the start of the hang
+    floatTime: 2, // s the craft "hangs" after collective returns to neutral
+    reversePause: 0.6, // s of extra horizontal damping after a cyclic reversal
+    // --- v4: containment + acro ---
+    homeBias: 3, // m/s² max acceleration toward home (v3: 1, linear ramp)
+    homeSoftRadius: 0.15, // fraction of HOME_LIMIT (150m) where the bias starts — 22.5m (v3: 0.6)
+    maneuverDamp: 1, // 0..1 — damping of horizontal motion during 3D maneuvers (flip/roll)
+};
 function shortestAngleDiff(target, current) {
     let d = (target - current) % (Math.PI * 2);
     if (d > Math.PI) d -= Math.PI * 2;
@@ -574,26 +596,306 @@ function interpolateRowsAt(rows, t) {
         gpsAlt: a.gpsAlt + (b.gpsAlt - a.gpsAlt) * f,
     };
 }
-function interpolateGpsAt(t) {
-    if (!gpsFixes.length) return null;
-    if (t <= gpsFixes[0].t) return gpsFixes[0];
-    if (t >= gpsFixes[gpsFixes.length - 1].t) return gpsFixes[gpsFixes.length - 1];
+function interpolateGpsAt(fixes, t) {
+    if (!fixes || !fixes.length) return null;
+    if (t <= fixes[0].t) return fixes[0];
+    if (t >= fixes[fixes.length - 1].t) return fixes[fixes.length - 1];
     let lo = 0,
-        hi = gpsFixes.length - 1;
+        hi = fixes.length - 1;
     while (hi - lo > 1) {
         const mid = (lo + hi) >> 1;
-        if (gpsFixes[mid].t < t) lo = mid;
+        if (fixes[mid].t < t) lo = mid;
         else hi = mid;
     }
-    const a = gpsFixes[lo],
-        b = gpsFixes[hi];
+    const a = fixes[lo],
+        b = fixes[hi];
     const f = (t - a.t) / (b.t - a.t || 1);
     return {
         lat: a.lat + (b.lat - a.lat) * f,
         lon: a.lon + (b.lon - a.lon) * f,
-        gpsAlt: a.gpsAlt + (b.gpsAlt - a.gpsAlt) * f,
+        gpsAlt: (a.gpsAlt ?? 0) + ((b.gpsAlt ?? 0) - (a.gpsAlt ?? 0)) * f,
     };
 }
+
+// --- v4 vertical safety & containment (고정 스펙) -------------------------
+// (2) 고도 상한: 15 m AGL부터 상승 가속을 점진 감쇠 → 50 m에서 완전 클램프.
+// (3) 그라운드 쿠션: 5 m 이하에서 하강 속도를 점진 감쇠 → 0 m 하드 플로어.
+// (1)/(4) 150 m 하드 펜스 유지 + 소프트 반경(기본 22.5 m) 안쪽부터 2차
+//     곡선 가중치의 home bias(최대 3 m/s²)로 자연스럽게 복귀.
+const EST_HZ = 50; // 추정기 적분 주파수 (재생 프레임과 동일)
+const EST_STEP_US = 1e6 / EST_HZ;
+const EST_G = 9.80665; // m/s²
+const HOME_LIMIT = 150; // m — 헬기장 중심에서의 하드 펜스 (유지)
+const ALT_SOFT_START = 15; // m AGL — 상승 감쇠 시작
+const ALT_HARD_LIMIT = 50; // m AGL — 하드 천장
+const GROUND_CUSHION_ALT = 5; // m AGL — 그라운드 쿠션 시작
+const GROUND_CUSHION_KEEP = 0.35; // z→0에서 잔여 하강속도 비율 (0=즉시 정지, 1=감쇠 없음)
+const MANEUVER_TILT_START = 30; // deg — 기동 감쇠 시작 (플립/롤 등 3D 기동)
+const MANEUVER_TILT_FULL = 50; // deg — 기동 감쇠 포화
+const MANEUVER_ACCEL_SUPPRESS = 0.85; // 기동 중 수평 가속 억제율 (0..1)
+const MANEUVER_EXTRA_DRAG = 3.5; // 1/s — 기동 중 추가 수평 감쇠
+const THRUST_LPF_ALPHA = 0.5; // 추력 벡터 1차 지연(로터 응답) — 50Hz 프레임당 EMA 계수
+const FLOAT_VZ_TRIGGER = 0.4; // m/s — hang 트리거 하강/상승 속도
+const REVERSE_SPEED_TRIGGER = 1; // m/s — settle 트리거 지면 속도
+const SETTLE_DRAG_MAX = 6; // 1/s — 반전 직후 추가 감쇠 피크
+const EST_DEG = Math.PI / 180;
+
+// Without-GPS 추정기 v4 — 콜렉티브 + 자세로 비행 경로를 적분.
+// 순수 함수 (THREE/Vue/store 의존 없음) — 테스트가 추출해 검증한다.
+// 반환: { frames: [{t,x,z,alt,roll,pitch,yaw,throttle}], hoverColl, match }
+//   - frames.x = 동(East), frames.z = -북 (GPS 분기와 동일 좌표)
+//   - match: GPS를 강제로 무시한 재생에서 실제 GPS 경로와의 오차 통계
+function buildEstimatedFrames(sourceRows, s, opts = {}) {
+    const matchFixes = opts.matchFixes || null; // GPS 강제 무시 시 비교용 fix 목록
+    const home = opts.home || null; // { lat, lon } (deg) — match 계산 기준점
+    const hasBaro = !!opts.hasBaro;
+    const startTime = sourceRows[0]?.t ?? 0;
+    const endTime = sourceRows[sourceRows.length - 1]?.t ?? startTime;
+
+    // Auto-calibrate the hover point: RC collective fields are stick-centred
+    // (≈ -100..100 with hover near the log median, NOT 0..100 with hover at
+    // 50). Using the raw median makes "more collective than usual → climb"
+    // hold for any FC's units.
+    let hoverColl = s.hoverCollective;
+    if (s.autoHover) {
+        const cols = sourceRows
+            .map((r) => r.collective)
+            .filter((v) => v != null && Number.isFinite(v))
+            .sort((a, b) => a - b);
+        if (cols.length) hoverColl = cols[Math.floor(cols.length / 2)];
+    }
+
+    const est = { x: 0, y: 0, z: s.startAltitude, vx: 0, vy: 0, vz: 0 }; // x=동, y=북, z=AGL
+    const baroMode = s.verticalSource !== "none" && hasBaro;
+    const baroAlpha = Math.max(0.05, 1 - Math.min(0.95, Math.max(0, s.baroSmoothing)));
+    let baroBase = null;
+    let baroSmooth = null;
+    let prevBaroAlt = null; // v4: 바로 표시 고도의 쿠션/천장 변환 기준
+    const estDt = EST_STEP_US / 1e6;
+    // --- v3 hang/settle state (per build) ---
+    let floatT = 0;
+    let settleT = 0;
+    let collNeutralPrev = true;
+    let floatAltHold = null;
+    // --- v4: 추력 벡터/콜렉티브 1차 지연 상태 (로터 응답 모델) ---
+    let uxF = 0, uyF = 0, collF = 0;
+    // --- v4: match 통계 ---
+    let mSum = 0, mMax = 0, mCov15 = 0, mCov10 = 0, mN = 0;
+    const softRadius = Math.min(HOME_LIMIT - 1, Math.max(0, s.homeSoftRadius) * HOME_LIMIT);
+    const maneuverScale = Math.min(1, Math.max(0, s.maneuverDamp ?? 1));
+    const mnStart = Math.sin(MANEUVER_TILT_START * EST_DEG);
+    const mnFull = Math.sin(MANEUVER_TILT_FULL * EST_DEG);
+    const out = [];
+
+    for (let t = startTime; t <= endTime + 0.5; t += EST_STEP_US) {
+        const row = interpolateRowsAt(sourceRows, Math.min(t, endTime));
+        if (!row) continue;
+
+        // --- Thrust from collective (body frame, up axis) ---
+        // collective neutral band — within ±neutralBand of the hover point
+        // the collective counts as neutral (pure hover thrust); a soft knee
+        // keeps the thrust continuous at the band edge.
+        const collDelta = (row.collective ?? 0) - hoverColl;
+        const collEff = Math.sign(collDelta) * Math.max(0, Math.abs(collDelta) - Math.max(0, s.neutralBand));
+        const aThrust = EST_G + collEff * 0.01 * s.fullPitchAccel;
+
+        // --- Rotate body-up into the world (East, North, Up) via attitude ---
+        // v4 부호 수정: RF attitude[2]는 나침반 요(북쪽 0°, 시계방향)이므로
+        // (E,N,U) 좌표계의 Rz에는 -yaw를, RF roll 부호는 추력 동쪽 성분과
+        // 반대이므로 -roll를 사용해야 실제 이동 방향과 일치한다.
+        // (sample.bbl GPS 경로 매칭으로 검증: 평균 오차 26.7m → 6.3m)
+        const roll = -row.roll, pitch = row.pitch, yaw = -row.yaw;
+        const cP = Math.cos(roll);
+        const sP = Math.sin(roll);
+        const sT = Math.sin(pitch);
+        const cY = Math.cos(yaw);
+        const sY = Math.sin(yaw);
+        const ux = cY * sT * cP + sY * sP;
+        const uy = sY * sT * cP - cY * sP;
+        // attitude neutral band — tilt inside axisNeutralBand (deg) drives no
+        // horizontal translation (soft knee). The DISPLAYED attitude stays raw.
+        const tiltMag = Math.hypot(ux, uy);
+        const tiltNeutral = Math.sin(Math.max(0, s.axisNeutralBand) * EST_DEG);
+        const tiltEff = Math.max(0, tiltMag - tiltNeutral);
+        const uxT = tiltMag > 1e-9 ? (ux / tiltMag) * tiltEff : 0;
+        const uyT = tiltMag > 1e-9 ? (uy / tiltMag) * tiltEff : 0;
+        const uzT = Math.sqrt(Math.max(0, 1 - Math.min(1, tiltEff * tiltEff)));
+
+        // --- v4 rotor lag: 추력 벡터/콜렉티브를 1차 지연으로 스무딩 ---
+        // 실제 로터는 스틱 입력에 대해 수십 ms 지연으로 응답하므로 순간적인
+        // 자세 지터가 곧바로 위치로 적분되지 않게 한다.
+        uxF += (uxT - uxF) * THRUST_LPF_ALPHA;
+        uyF += (uyT - uyF) * THRUST_LPF_ALPHA;
+        collF += (collEff - collF) * THRUST_LPF_ALPHA;
+        const aThrustL = EST_G + collF * 0.01 * s.fullPitchAccel;
+
+        // v3: hang window — the collective just returned to neutral while the
+        // craft was climbing/descending; decaying gravity relief bleeds the
+        // vertical velocity to zero over floatTime seconds.
+        const collNeutral = Math.abs(collDelta) <= Math.max(0, s.neutralBand);
+        if (collNeutral && !collNeutralPrev && Math.abs(est.vz) > FLOAT_VZ_TRIGGER) {
+            floatT = s.floatTime;
+            floatAltHold = null;
+        }
+        collNeutralPrev = collNeutral;
+
+        // v3: reversal settle — the rotor tilt turned against the current motion.
+        const hSpeed = Math.hypot(est.vx, est.vy);
+        if (hSpeed > REVERSE_SPEED_TRIGGER && tiltEff > 0.02) {
+            const dirDot = (est.vx * uxT + est.vy * uyT) / (hSpeed * tiltEff);
+            if (dirDot < -0.25) settleT = s.reversePause;
+        }
+        let settleDrag = 0;
+        if (settleT > 0) {
+            settleDrag = SETTLE_DRAG_MAX * (settleT / Math.max(0.01, s.reversePause));
+            settleT -= estDt;
+        }
+
+        // --- v4 maneuver damping: 기울기 ≥ 30°(플립/롤 등 3D 기동) 구간에서는
+        // 기체가 제자리에서 회전한다고 모델링한다 — 수평 가속을 억제하고 강한
+        // 감쇠를 건다. 이게 없으면 플립 동안의 대형 기울기가 허위 추력으로
+        // 적분되어 기체가 헬기장 밖으로 멀리 튀어나간다 (v3 드리프트의 주원인).
+        let mnAccel = 0, mnDrag = 0;
+        if (maneuverScale > 0 && tiltMag > mnStart) {
+            const f = maneuverScale * Math.min(1, Math.max(0, (tiltMag - mnStart) / (mnFull - mnStart)));
+            mnAccel = MANEUVER_ACCEL_SUPPRESS * f;
+            mnDrag = MANEUVER_EXTRA_DRAG * f;
+        }
+        const hDrag = s.drag + settleDrag;
+
+        // --- Net world accel = thrust - gravity - linear drag, integrate ---
+        let az = aThrust * uzT - EST_G - s.drag * est.vz;
+        if (floatT > 0) {
+            const frac = floatT / Math.max(0.01, s.floatTime); // 1 → 0
+            const relief = Math.min(1, s.gravityRelief) * frac;
+            az *= 1 - relief;
+            est.vz -= est.vz * Math.min(0.9, relief * 8 * estDt);
+            floatT -= estDt;
+        }
+        // v4 soft ceiling: 15 m AGL부터 상승 가속을 점진 감쇠.
+        if (est.z > ALT_SOFT_START && az > 0) {
+            az *= 1 - Math.min(1, (est.z - ALT_SOFT_START) / (ALT_HARD_LIMIT - ALT_SOFT_START));
+        }
+        const ax = (aThrustL * uxF - hDrag * est.vx) * (1 - mnAccel);
+        const ay = (aThrustL * uyF - hDrag * est.vy) * (1 - mnAccel);
+        est.vx += ax * estDt - mnDrag * est.vx * estDt;
+        est.vy += ay * estDt - mnDrag * est.vy * estDt;
+        est.vz += az * estDt;
+        est.x += est.vx * estDt;
+        est.y += est.vy * estDt;
+        est.z += est.vz * estDt;
+
+        // v4 ground cushion: 5 m 이하에서 하강 속도를 점진 감쇠.
+        if (est.z < GROUND_CUSHION_ALT && est.vz < 0) {
+            const cf = Math.max(0, Math.min(1, est.z / GROUND_CUSHION_ALT));
+            est.vz *= GROUND_CUSHION_KEEP + (1 - GROUND_CUSHION_KEEP) * cf;
+        }
+        // 0 m 하드 플로어 / 50 m 하드 천장.
+        if (est.z < 0) {
+            est.z = 0;
+            if (est.vz < 0) est.vz = 0;
+        }
+        if (est.z > ALT_HARD_LIMIT) {
+            est.z = ALT_HARD_LIMIT;
+            if (est.vz > 0) est.vz = 0;
+        }
+
+        // --- v4 drift control(강화): home bias를 소프트 반경(기본 22.5 m)
+        // 안쪽부터 2차 곡선 가중치로 걸고 최대 가속도를 3 m/s²로 상향.
+        // 펜스 근처에서는 강하게, 안쪽에서는 부드럽게 작동해 자연스럽게
+        // 헬기장 중심으로 돌아온다 (v3: 선형 w, 최대 1 m/s²). ---
+        const dist = Math.hypot(est.x, est.y);
+        if (dist > softRadius && dist > 1e-6) {
+            const w = Math.min(1, (dist - softRadius) / Math.max(1, HOME_LIMIT - softRadius));
+            const bias = Math.max(0, s.homeBias) * w * w; // 2차 램프 (v3: 선형 w)
+            est.vx -= (est.x / dist) * bias * estDt;
+            est.vy -= (est.y / dist) * bias * estDt;
+        }
+
+        // --- Field fence (150 m, 유지): 경계에 닿으면 외측 속도 성분만
+        // 제거해 경계를 따라 미끄러지듯 이동한다. ---
+        const distFence = Math.hypot(est.x, est.y);
+        if (distFence > HOME_LIMIT) {
+            const nx = est.x / distFence;
+            const ny = est.y / distFence;
+            est.x = nx * HOME_LIMIT;
+            est.y = ny * HOME_LIMIT;
+            const outward = est.vx * nx + est.vy * ny;
+            if (outward > 0) {
+                est.vx -= outward * nx;
+                est.vy -= outward * ny;
+            }
+        }
+
+        let frameAlt = est.z;
+        // --- Barometer vertical override (preferred when available) ---
+        if (baroMode && row.baro != null) {
+            if (baroBase == null) baroBase = row.baro;
+            baroSmooth = baroSmooth == null ? row.baro : baroSmooth + baroAlpha * (row.baro - baroSmooth);
+            const baroVal = s.verticalSource === "baro" ? row.baro : baroSmooth;
+            let baroAlt = (baroVal - baroBase) / 100; // RF altitude cm → m
+            // v3: the hang stays visible in baro modes — blend the displayed
+            // altitude toward the value captured when the collective returned
+            // to neutral, then release it as the relief decays.
+            if (floatT > 0) {
+                const frac = floatT / Math.max(0.01, s.floatTime);
+                const relief = Math.min(1, s.gravityRelief) * frac;
+                if (floatAltHold == null) floatAltHold = baroAlt;
+                baroAlt = floatAltHold + (baroAlt - floatAltHold) * (1 - relief);
+            } else {
+                floatAltHold = null;
+            }
+            // v4: 표시 고도에도 동일한 수직 안전장치를 적용한다 —
+            // 5 m 이하 하강량은 그라운드 쿠션 비율로 축소,
+            // 15 m 이상 상승량은 소프트 천장 비율로 축소 후 [0, 50] 클램프.
+            if (prevBaroAlt != null) {
+                const d = baroAlt - prevBaroAlt;
+                if (d < 0 && prevBaroAlt > 0 && prevBaroAlt < GROUND_CUSHION_ALT) {
+                    const cf = Math.max(0, Math.min(1, prevBaroAlt / GROUND_CUSHION_ALT));
+                    baroAlt = prevBaroAlt + d * (GROUND_CUSHION_KEEP + (1 - GROUND_CUSHION_KEEP) * cf);
+                } else if (d > 0 && prevBaroAlt > ALT_SOFT_START) {
+                    const cf = Math.min(1, (prevBaroAlt - ALT_SOFT_START) / (ALT_HARD_LIMIT - ALT_SOFT_START));
+                    baroAlt = prevBaroAlt + d * (1 - cf);
+                }
+            }
+            prevBaroAlt = baroAlt;
+            frameAlt = Math.min(ALT_HARD_LIMIT, Math.max(0, baroAlt));
+        }
+
+        // --- v4: GPS 강제 무시 검증 통계 — GPS가 있는 로그를 끄고 재생할 때
+        // 추정 경로가 실제 GPS 경로와 얼마나 가까운지 측정한다. ---
+        if (matchFixes && matchFixes.length && home) {
+            const gps = interpolateGpsAt(matchFixes, Math.min(t, endTime));
+            const dLat = (gps.lat / 1e7 - home.lat) * 111320;
+            const dLon = (gps.lon / 1e7 - home.lon) * 111320 * Math.cos((home.lat * Math.PI) / 180);
+            const err = Math.hypot(est.x - dLon, est.y - dLat);
+            mSum += err;
+            if (err > mMax) mMax = err;
+            if (err <= 15) mCov15++;
+            if (err <= 10) mCov10++;
+            mN++;
+        }
+
+        out.push({
+            t: Math.min(t, endTime),
+            x: est.x, // 동(East)
+            z: -est.y, // 장면 z = -북 (GPS 분기와 동일)
+            alt: frameAlt,
+            roll: row.roll,
+            pitch: row.pitch,
+            yaw: row.yaw,
+            throttle: row.throttle,
+        });
+    }
+    return {
+        frames: out,
+        hoverColl,
+        match: mN
+            ? { n: mN, meanErr: mSum / mN, maxErr: mMax, cov15: mCov15 / mN, cov10: mCov10 / mN }
+            : null,
+    };
+}
+// ESTIMATOR-CORE-END
 function buildFrames(data) {
     const { out, iAAlt, iBAlt, iMode } = data;
     sourceRows = out.slice().sort((a, b) => a.t - b.t);
@@ -666,215 +968,73 @@ function buildFrames(data) {
     startTime = firstTime;
     endTime = lastTime;
 
-    // Without-GPS flight estimation: dead-reckon the flight path from
-    // collective + attitude when the log carries no GPS fixes. Attitude is
-    // exactly what the graph-panel heli shows; the thrust model is
-    //   a_body = g + (coll% - hoverColl%) / 100 * fullPitchAccel
-    // rotated into the world frame by R(yaw,pitch,roll) — see the Without-GPS
-    // estimator block inside the frame loop below.
-    const useEstimator = !hasGps;
+    // v4: the estimator runs when the log carries no GPS fixes OR the user
+    // forced estimation ("No GPS" switch) to compare against the logged GPS
+    // path. The physics core lives in buildEstimatedFrames() above — see the
+    // ESTIMATOR-CORE block for the thrust model, the sign conventions and the
+    // vertical/containment safety limits.
+    const useEstimator = !hasGps || forceEstimate.value;
     estWithoutGps.value = useEstimator;
     hasGpsFlag.value = hasGps;
     hasBaro.value = sourceRows.some((r) => r.baro != null);
     const s = estSettings.value;
-    // Auto-calibrate the hover point: RC collective fields are stick-centred
-    // (≈ -100..100 with hover near the log median, NOT 0..100 with hover at
-    // 50). Using the raw median makes "more collective than usual → climb"
-    // hold for any FC's units. The dialog checkbox turns this off to use the
-    // manually entered value instead.
-    let hoverColl = s.hoverCollective;
-    if (s.autoHover) {
-        const cols = sourceRows.map((r) => r.collective).filter((v) => v != null && Number.isFinite(v)).sort((a, b) => a - b);
-        if (cols.length) hoverColl = cols[Math.floor(cols.length / 2)];
-    }
-    lastBuildHover = Math.round(hoverColl * 10) / 10;
-    lastBuildEstimator = useEstimator;
-    lastBuildBaroMode =
-        useEstimator && s.verticalSource !== "none" && hasBaro.value
-            ? s.verticalSource === "baro"
-                ? "raw"
-                : "smoothed"
-            : "off";
-    const G_ACCEL = 9.80665;
-    const est = useEstimator
-        ? { x: 0, y: 0, z: s.startAltitude, vx: 0, vy: 0, vz: 0 } // world ENU; z starts at the configured altitude
-        : null;
-    const baroMode = useEstimator && s.verticalSource !== "none" && hasBaro.value;
-    const baroAlpha = Math.max(0.05, 1 - Math.min(0.95, Math.max(0, s.baroSmoothing)));
-    let baroBase = null;
-    let baroSmooth = null;
-    const estDt = PLAYBACK_STEP_US / 1e6; // integration step (frames are exactly PLAYBACK_HZ apart)
-    // --- v3 hang/settle state (per build) ---
-    let floatT = 0; // remaining seconds of the "hang" (gravity relief) window
-    let settleT = 0; // remaining seconds of the reversal-settle damping spike
-    let collNeutralPrev = true; // collective was inside the neutral band on the previous frame
-    let floatAltHold = null; // displayed altitude captured when the hang started (baro modes)
-
-    for (let t = startTime; t <= endTime + 0.5; t += PLAYBACK_STEP_US) {
-        const row = interpolateRowsAt(sourceRows, Math.min(t, endTime));
-        if (!row) continue;
-        let frameX = 0;
-        let frameZ = 0;
-        let frameAlt = 0;
-        if (useEstimator) {
-            // --- Thrust from collective (body frame, up axis) ---
-            // v3: collective neutral band — within ±neutralBand of the hover
-            // point the collective counts as neutral (pure hover thrust), so
-            // the tiny stick jitter around centre no longer pumps the
-            // altitude. A soft knee (the band is subtracted from the delta
-            // magnitude) keeps the thrust continuous at the band edge.
-            const collDelta = (row.collective ?? 0) - hoverColl;
-            const collEff = Math.sign(collDelta) * Math.max(0, Math.abs(collDelta) - Math.max(0, s.neutralBand));
-            const aThrust = G_ACCEL + collEff * 0.01 * s.fullPitchAccel;
-            // --- Rotate body-up into the world (ENU) via attitude ---
-            const cP = Math.cos(row.roll);
-            const sP = Math.sin(row.roll);
-            const sT = Math.sin(row.pitch);
-            const cY = Math.cos(row.yaw);
-            const sY = Math.sin(row.yaw);
-            const ux = cY * sT * cP + sY * sP;
-            const uy = sY * sT * cP - cY * sP;
-            // v3: attitude neutral band — tilt inside axisNeutralBand (deg)
-            // drives no horizontal translation (thrust treated as straight
-            // up), the same soft knee as the collective band. The DISPLAYED
-            // attitude stays raw — only the translation input is banded.
-            const tiltMag = Math.hypot(ux, uy);
-            const tiltNeutral = Math.sin((Math.max(0, s.axisNeutralBand) * Math.PI) / 180);
-            const tiltEff = Math.max(0, tiltMag - tiltNeutral);
-            const uxT = tiltMag > 1e-9 ? (ux / tiltMag) * tiltEff : 0;
-            const uyT = tiltMag > 1e-9 ? (uy / tiltMag) * tiltEff : 0;
-            const uzT = Math.sqrt(Math.max(0, 1 - Math.min(1, tiltEff * tiltEff)));
-            // v3: hang window — the collective just returned to neutral while
-            // the craft was climbing or descending. Real helis hang for a beat
-            // (rotor inertia + collective cushioning) instead of ballooning or
-            // dropping; model it as decaying gravity relief that fades the net
-            // vertical acceleration out and bleeds the vertical velocity to
-            // zero over floatTime seconds.
-            const collNeutral = Math.abs(collDelta) <= Math.max(0, s.neutralBand);
-            if (collNeutral && !collNeutralPrev && Math.abs(est.vz) > FLOAT_VZ_TRIGGER) {
-                floatT = s.floatTime;
-                floatAltHold = null; // re-capture the displayed altitude at the hang
-            }
-            collNeutralPrev = collNeutral;
-            // v3: reversal settle — the rotor tilt now points against the
-            // current motion (cyclic reversal): the real heli decelerates
-            // hard and sits still for a beat before translating the other
-            // way. Model it with a short-lived extra horizontal drag that
-            // spikes on the reversal and decays over reversePause seconds.
-            const hSpeed = Math.hypot(est.vx, est.vy);
-            if (hSpeed > REVERSE_SPEED_TRIGGER && tiltEff > 0.02) {
-                const dirDot = (est.vx * uxT + est.vy * uyT) / (hSpeed * tiltEff);
-                if (dirDot < -0.25) settleT = s.reversePause;
-            }
-            let settleDrag = 0;
-            if (settleT > 0) {
-                settleDrag = SETTLE_DRAG_MAX * (settleT / Math.max(0.01, s.reversePause));
-                settleT -= estDt;
-            }
-            const hDrag = s.drag + settleDrag;
-            // --- Net world accel = thrust - gravity - linear drag, integrate ---
-            let az = aThrust * uzT - G_ACCEL - s.drag * est.vz;
-            if (floatT > 0) {
-                const frac = floatT / Math.max(0.01, s.floatTime); // 1 → 0
-                const relief = Math.min(1, s.gravityRelief) * frac;
-                az *= 1 - relief; // gravity/thrust overshoot fade out
-                est.vz -= est.vz * Math.min(0.9, relief * 8 * estDt); // bleed vertical velocity → hang
-                floatT -= estDt;
-            }
-            const ax = aThrust * uxT - hDrag * est.vx;
-            const ay = aThrust * uyT - hDrag * est.vy;
-            est.vx += ax * estDt;
-            est.vy += ay * estDt;
-            est.vz += az * estDt;
-            est.x += est.vx * estDt;
-            est.y += est.vy * estDt;
-            est.z += est.vz * estDt;
-            if (est.z < 0) {
-                est.z = 0;
-                if (est.vz < 0) est.vz = 0;
-            }
-            // --- v3 drift control: steer the craft back toward the home
-            // (starting) point once it drifts past the soft radius, so
-            // dead-reckoned paths bend back toward the field instead of
-            // wandering away for good.
-            const dist = Math.hypot(est.x, est.y);
-            const softRadius = Math.min(HOME_LIMIT - 1, Math.max(0, s.homeSoftRadius) * HOME_LIMIT);
-            if (dist > softRadius && dist > 1e-6) {
-                const w = Math.min(1, (dist - softRadius) / Math.max(1, HOME_LIMIT - softRadius));
-                const bias = Math.max(0, s.homeBias) * w; // m/s² toward home
-                est.vx -= (est.x / dist) * bias * estDt;
-                est.vy -= (est.y / dist) * bias * estDt;
-            }
-            // --- Field fence: keep the craft inside HOME_LIMIT metres of the
-            // home point. On reaching the fence, zero the outward velocity
-            // component so the craft slides along the boundary instead of
-            // sticking to it.
-            const distFence = Math.hypot(est.x, est.y);
-            if (distFence > HOME_LIMIT) {
-                const nx = est.x / distFence;
-                const ny = est.y / distFence;
-                est.x = nx * HOME_LIMIT;
-                est.y = ny * HOME_LIMIT;
-                const outward = est.vx * nx + est.vy * ny;
-                if (outward > 0) {
-                    est.vx -= outward * nx;
-                    est.vy -= outward * ny;
-                }
-            }
-            // The estimated horizontal path IS displayed: the craft moves in
-            // the direction the rotor tilts (thrust vector integration).
-            // Visibility is guaranteed by the chase camera, not by pinning
-            // the craft to the home point.
-            frameX = est.x;
-            frameZ = -est.y; // scene north → -z (same as the GPS path)
-            frameAlt = est.z;
-            // --- Barometer vertical override (preferred when available) ---
-            if (baroMode && row.baro != null) {
-                if (baroBase == null) baroBase = row.baro;
-                baroSmooth = baroSmooth == null ? row.baro : baroSmooth + baroAlpha * (row.baro - baroSmooth);
-                const baroVal = s.verticalSource === "baro" ? row.baro : baroSmooth;
-                frameAlt = (baroVal - baroBase) / 100; // RF altitude is cm → m
-                // v3: the hang must stay visible in baro modes too — during
-                // the relief window blend the displayed altitude toward the
-                // value captured when the collective returned to neutral,
-                // then release it smoothly as the relief decays.
-                if (floatT > 0) {
-                    const frac = floatT / Math.max(0.01, s.floatTime);
-                    const relief = Math.min(1, s.gravityRelief) * frac;
-                    if (floatAltHold == null) floatAltHold = frameAlt;
-                    frameAlt = floatAltHold + (frameAlt - floatAltHold) * (1 - relief);
-                } else {
-                    floatAltHold = null;
-                }
-            }
-        } else {
-            const gps = interpolateGpsAt(Math.min(t, endTime));
+    lastBuildMatch = null;
+    if (useEstimator) {
+        const res = buildEstimatedFrames(sourceRows, s, {
+            // GPS를 강제로 무시한 재생에서는 추정 경로가 실제 GPS 경로와
+            // 얼마나 가까운지(평균 오차, 15m/10m 이내 비율) 함께 계산한다.
+            matchFixes: hasGps ? gpsFixes : null,
+            home: hasGps && homeLat != null ? { lat: homeLat, lon: homeLon } : null,
+            hasBaro: hasBaro.value,
+        });
+        lastBuildHover = Math.round(res.hoverColl * 10) / 10;
+        lastBuildEstimator = true;
+        lastBuildBaroMode =
+            s.verticalSource !== "none" && hasBaro.value ? (s.verticalSource === "baro" ? "raw" : "smoothed") : "off";
+        lastBuildMatch = res.match;
+        frames = res.frames.map((f) => ({
+            ...f,
+            vx: 0,
+            vz: 0,
+            baroAltM: f.alt,
+            gpsAltM: f.alt,
+            aAlt: rawAbAt(f.t, iAAlt),
+            bAlt: rawAbAt(f.t, iBAlt),
+            mode: rawModeAt(f.t),
+        }));
+    } else {
+        lastBuildHover = 0;
+        lastBuildEstimator = false;
+        lastBuildBaroMode = "";
+        for (let t = startTime; t <= endTime + 0.5; t += PLAYBACK_STEP_US) {
+            const row = interpolateRowsAt(sourceRows, Math.min(t, endTime));
+            if (!row) continue;
+            const gps = interpolateGpsAt(gpsFixes, Math.min(t, endTime));
             const lat = gps ? gps.lat / 1e7 : homeLat;
             const lon = gps ? gps.lon / 1e7 : homeLon;
             const dLat = (lat - homeLat) * 111320;
             const dLon = (lon - homeLon) * 111320 * Math.cos((homeLat * Math.PI) / 180);
-            frameX = dLon;
-            frameZ = -dLat;
-            const baroAltM = (row.baro ?? 0) / 100;
-            frameAlt = baroAltM;
+            const frameX = dLon;
+            const frameZ = -dLat;
+            const frameAlt = (row.baro ?? 0) / 100;
+            frames.push({
+                t: Math.min(t, endTime),
+                x: frameX,
+                z: frameZ,
+                alt: frameAlt,
+                roll: row.roll,
+                pitch: row.pitch,
+                yaw: row.yaw,
+                throttle: row.throttle,
+                vx: 0,
+                vz: 0,
+                baroAltM: frameAlt,
+                gpsAltM: frameAlt,
+                aAlt: rawAbAt(Math.min(t, endTime), iAAlt),
+                bAlt: rawAbAt(Math.min(t, endTime), iBAlt),
+                mode: rawModeAt(Math.min(t, endTime)),
+            });
         }
-        frames.push({
-            t: Math.min(t, endTime),
-            x: frameX,
-            z: frameZ,
-            alt: frameAlt,
-            roll: row.roll,
-            pitch: row.pitch,
-            yaw: row.yaw,
-            throttle: row.throttle,
-            vx: 0,
-            vz: 0,
-            baroAltM: frameAlt,
-            gpsAltM: frameAlt,
-            aAlt: rawAbAt(Math.min(t, endTime), iAAlt),
-            bAlt: rawAbAt(Math.min(t, endTime), iBAlt),
-            mode: rawModeAt(Math.min(t, endTime)),
-        });
     }
     // Always derive ground speed from the displacement between consecutive
     // frames. The playback step is fixed (PLAYBACK_STEP_US at PLAYBACK_HZ), so dt
@@ -994,6 +1154,53 @@ function setPlaying(p) {
     if (p) lastPlayWall = performance.now();
 }
 
+// ---------------------------------------------------------------------------
+// v4: GPS reference trail — GPS가 있는 로그에서 "No GPS"로 추정 재생을 강제한
+// 경우, 실제 GPS 경로를 반투명 파란 라인으로 함께 그려 눈으로 비교할 수
+// 있게 한다 (사용자 검증 워크플로: sample.bbl).
+// ---------------------------------------------------------------------------
+let gpsTrailLine = null;
+function clearGpsTrail() {
+    if (gpsTrailLine) {
+        scene?.remove(gpsTrailLine);
+        gpsTrailLine.geometry.dispose();
+        gpsTrailLine.material.dispose();
+        gpsTrailLine = null;
+    }
+}
+function buildGpsReferenceTrail() {
+    clearGpsTrail();
+    if (!scene || !hasGps || !lastBuildEstimator || !gpsFixes.length || !sourceRows.length) return;
+    let baroBase = null;
+    const pts = [];
+    const stepUs = 500000; // 2 Hz 샘플 — 표시용으로 충분
+    for (let t = startTime; t <= endTime; t += stepUs) {
+        const gps = interpolateGpsAt(gpsFixes, Math.min(t, endTime));
+        if (!gps) continue;
+        const row = interpolateRowsAt(sourceRows, Math.min(t, endTime));
+        const dLat = (gps.lat / 1e7 - homeLat) * 111320;
+        const dLon = (gps.lon / 1e7 - homeLon) * 111320 * Math.cos((homeLat * Math.PI) / 180);
+        let y = 0;
+        if (row && row.baro != null) {
+            if (baroBase == null) baroBase = row.baro;
+            y = Math.max(0, (row.baro - baroBase) / 100);
+        }
+        pts.push(
+            new THREE.Vector3(
+                dLon * S * GPS_MOTION_SCALE,
+                y * S * GPS_MOTION_SCALE + HELI_GROUND_OFFSET * S,
+                -dLat * S * GPS_MOTION_SCALE,
+            ),
+        );
+    }
+    if (pts.length < 2) return;
+    gpsTrailLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color: 0x1e90ff, transparent: true, opacity: 0.6 }),
+    );
+    scene.add(gpsTrailLine);
+}
+
 // Reset the bottom playback controls (play button + seek bar + time) and any
 // in-flight replay state when a new log is loaded.
 function resetPlayback() {
@@ -1004,6 +1211,7 @@ function resetPlayback() {
     startTime = 0;
     endTime = 0;
     clearMarkers();
+    clearGpsTrail();
     if (seekRef.value) seekRef.value.value = 0;
     timeLabel.value = "0.0s";
     if (hudFile) hudFile.textContent = displayName.value;
@@ -1029,11 +1237,22 @@ function prepareFromActiveLog(autoplay) {
         initialFrameYaw = frames[0]?.yaw ?? 0;
         const markerCount = buildMarkers(data);
         applyAirfieldAlignment();
+        // v4: 추정 재생을 강제한 GPS 로그 — 실제 GPS 경로를 참조 라인으로 표시.
+        buildGpsReferenceTrail();
         playT = startTime;
         if (seekRef.value) seekRef.value.value = 0;
         const fr = frameAt(playT);
         applyFrame(fr);
-        status.value = `Loaded: ${frames.length} frames (${PLAYBACK_HZ}Hz), ${lastBuildEstimator ? `flight estimated from collective+attitude (hover≈${lastBuildHover}, baro: ${lastBuildBaroMode})` : `GPS interpolated from ${gpsFixes.length} fixes`}${markerCount ? `, ${markerCount} markers` : ""}`;
+        // v4: 상태 문자열 — 추정 모드면 hover/baro 요약 + (강제 무시 시) GPS 대비
+        // 오차 통계(평균/15m 이내 비율)까지 표시한다.
+        let estDesc = `flight estimated from collective+attitude (hover≈${lastBuildHover}, baro: ${lastBuildBaroMode})`;
+        if (lastBuildEstimator && hasGps) {
+            estDesc += ", GPS ignored";
+            if (lastBuildMatch) {
+                estDesc += ` — est vs GPS: mean ${lastBuildMatch.meanErr.toFixed(1)}m, ≤15m: ${(lastBuildMatch.cov15 * 100).toFixed(0)}%, ≤10m: ${(lastBuildMatch.cov10 * 100).toFixed(0)}%`;
+            }
+        }
+        status.value = `Loaded: ${frames.length} frames (${PLAYBACK_HZ}Hz), ${lastBuildEstimator ? estDesc : `GPS interpolated from ${gpsFixes.length} fixes`}${markerCount ? `, ${markerCount} markers` : ""}`;
         timeLabel.value = "0.0s";
         setPlaying(!!autoplay);
     } catch (err) {
@@ -1317,10 +1536,13 @@ onMounted(async () => {
     }
 });
 // A different log opened while the panel stays mounted → rebuild frames.
+// The forced no-GPS estimate is a per-log comparison tool: reset it so a
+// freshly opened GPS log replays its own GPS path first.
 watch(
     () => logStore.flightLog,
     () => {
         if (!rootRef.value || !renderer) return;
+        forceEstimate.value = false;
         resetPlayback();
         if (hasLog.value) {
             prepareFromActiveLog(false);
