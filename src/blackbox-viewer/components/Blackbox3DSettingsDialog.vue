@@ -1,5 +1,19 @@
 <template>
-    <UModal v-model:open="open" :ui="{ content: 'sm:max-w-md' }" class="overflow-visible">
+    <!-- portal=false: render this dialog INSIDE the 3D panel subtree instead of
+         teleporting it to <body>. The panel root (.blackbox-3d-replay) is the
+         element that goes browser-fullscreen (Blackbox3DPanel onFullScreen()),
+         and while a fullscreen element is active the Fullscreen API renders
+         only that element's subtree — a body-teleported modal is invisible,
+         which made the No GPS settings unreachable right after pressing
+         Full Screen (desktop and Android WebView alike). Reka's DialogPortal
+         with disabled renders in place; z-50 lifts the in-place dialog above
+         the panel's own z-10 toolbar / HUD chrome. -->
+    <UModal
+        v-model:open="open"
+        :ui="{ overlay: 'z-50', content: 'sm:max-w-md z-50' }"
+        class="overflow-visible"
+        :portal="false"
+    >
         <template #header>
             <h4 class="font-semibold">No GPS — Flight Estimation (v4)</h4>
         </template>

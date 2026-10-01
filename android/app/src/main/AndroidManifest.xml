@@ -9,6 +9,15 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- windowSoftInputMode=adjustResize is Capacitor's template default.
+             Without an explicit mode Android chooses adjustPan for the
+             (scrollable) WebView: when the soft keyboard opens over a web
+             dialog — e.g. the 3D "No GPS" estimation settings with its number
+             inputs — the window pans instead of resizing, the focused field
+             stays hidden beneath the keyboard and typed values appear lost.
+             adjustResize shrinks the WebView so the dialog
+             (max-height: calc(100dvh - 2rem)) and its inputs reflow above the
+             keyboard. -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
@@ -16,7 +25,8 @@
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
             android:exported="true"
-            android:screenOrientation="userLandscape">
+            android:screenOrientation="userLandscape"
+            android:windowSoftInputMode="adjustResize">
 
             <!-- Large-screen devices (Android 16+ targeting SDK 36, sw >= 600dp)
                  ignore fixed orientations by default; opt out so the viewer stays

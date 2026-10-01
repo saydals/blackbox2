@@ -315,16 +315,42 @@ export function createKeydownHandler(ctx) {
     // trigger holds focus — the same distinction createDropdownSpaceGuard draws below.
     const OPEN_POPUP = "[role='menu'],[role='listbox']";
 
+    // Keystrokes aimed at an editable control must reach it untouched. The
+    // shortcuts below run on a document-level keydown, so without this guard
+    // they swallow what the user types into the viewer's own inputs.
+    // Concretely: the 3D "No GPS — Flight Estimation" dialog (a Nuxt UI
+    // UModal — no legacy ".modal" class) holds <input type="number"> fields.
+    // Their digits were eaten because e.code "DigitN" matched the workspace
+    // shortcut and the e.preventDefault() below stopped the character from
+    // ever reaching the field — reported as "no numeric input possible in the
+    // No GPS dialog on Android" (hardware keyboards and many Android IMEs
+    // deliver real Digit-coded keydowns; desktop always did). Only
+    // type === "text" was exempt before, so every other input type fell
+    // through to the shortcuts.
+    function isEditableTarget(e) {
+        const t = e.target;
+        if (!t || !t.tagName) {
+            return false;
+        }
+        const tag = t.tagName;
+        return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable === true;
+    }
+
     return function (e) {
         // Dormant behind other tabs (embedded): don't hijack keys the user means for the host.
         if (!appStore.viewerActive || isExportInProgress()) {
             return;
         }
+        // An open dialog owns the keyboard just like an open popup (below):
+        // Nuxt UI / reka-ui dialogs carry [role='dialog']; ".modal" stays for
+        // the legacy Bootstrap-era dialogs. This also keeps the Enter-blur
+        // from firing while typing inside those dialogs.
+        const inDialog = !!e.target.closest?.("[role='dialog'], .modal");
         const shifted = e.altKey || e.shiftKey || e.ctrlKey || e.metaKey;
-        if (e.key === "Enter" && e.target.type === "text" && !e.target.closest(".modal")) {
+        if (e.key === "Enter" && e.target.type === "text" && !inDialog) {
             e.target.blur();
         }
-        if (hasGraph() && e.target.type !== "text" && !e.target.closest(".modal") && !e.target.closest?.(OPEN_POPUP)) {
+        if (hasGraph() && !isEditableTarget(e) && !inDialog && !e.target.closest?.(OPEN_POPUP)) {
             if (e.code.startsWith("Digit")) {
                 try {
                     handleDigitKey(e);
