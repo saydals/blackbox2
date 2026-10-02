@@ -122,6 +122,21 @@
                 <FieldValuesPanel />
                 <ConfigurationPanel />
 
+                <!-- Log loading progress overlay. Shown while a log file is being
+                     read + indexed (appStore.indexProgress 0–100); the async index
+                     build yields at checkpoints so this actually paints on
+                     low-power devices. Blocks input so nothing can trigger a
+                     duplicate sync index build mid-load. -->
+                <div v-if="appStore.indexProgress !== null" class="log-load-overlay">
+                    <div class="log-load-box">
+                        <div class="log-load-label">{{ appStore.indexProgressLabel || "Loading log…" }}</div>
+                        <div class="log-load-bar">
+                            <div class="log-load-fill" :style="{ width: `${appStore.indexProgress}%` }"></div>
+                        </div>
+                        <div class="log-load-pct">{{ appStore.indexProgress }}%</div>
+                    </div>
+                </div>
+
                 <!-- Dialogs -->
                 <KeysDialog v-model:open="appStore.keysDialogOpen" />
                 <UserSettingsDialog v-model:open="appStore.settingsDialogOpen" @save="onSaveSettings" />
@@ -461,3 +476,57 @@ onUnmounted(() => {
     document.removeEventListener("drop", onDrop);
 });
 </script>
+
+<style scoped>
+/* Log loading overlay — fixed to the viewport (no dependency on ancestor
+ * positioning), theme-agnostic surfaces. */
+.log-load-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.log-load-box {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: min(24rem, 80vw);
+    padding: 1rem 1.25rem;
+    border-radius: 0.5rem;
+    background: var(--surface-100, #1b2027);
+    color: var(--graph-text-secondary, #cfd8e3);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+}
+
+.log-load-label {
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.log-load-bar {
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--surface-400, #333c46);
+    overflow: hidden;
+}
+
+.log-load-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--color-primary-500, #2db0e3);
+    transition: width 0.15s ease-out;
+}
+
+.log-load-pct {
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    align-self: flex-end;
+    opacity: 0.75;
+}
+</style>

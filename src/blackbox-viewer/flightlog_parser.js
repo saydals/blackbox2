@@ -29,6 +29,24 @@ import {
     API_VERSION_1_49,
 } from "../js/data_storage";
 
+/* Bytes parsed between two checkpoints of parseLogDataGen. At a checkpoint the
+ * generator pauses (async driver) so the caller can report progress, apply a
+ * memory-pressure abort and let the UI paint. 1 MiB keeps the pause count low
+ * (~per-MB) while still giving smooth progress on large logs. */
+const PARSE_CHECKPOINT_BYTES = 1024 * 1024;
+
+/**
+ * Thrown by the async parse driver when the caller's abort check fires
+ * (memory pressure). The flightlog index catches it and keeps the frames
+ * parsed so far — a partial load — instead of marking the log corrupt.
+ */
+export class ParserAbortedError extends Error {
+    constructor(message = "Log parsing aborted (memory pressure)") {
+        super(message);
+        this.name = "ParserAbortedError";
+    }
+}
+
 /**
  * Maps a blackbox log's firmware revision (firmware type + version) to the MSP
  * API version whose debug-mode / debug-field definitions match it.
@@ -1970,16 +1988,20 @@ export function FlightLogParser(logData) {
         }
     };
 
-    /**
-     * Continue the current parse by scanning the given range of offsets for data. To begin an independent parse,
-     * call resetDataState() first.
-     */
-    this.parseLogData = function (raw, startOffset, endOffset) {
+    /* Generator core of the data-section parser. Identical loop to the classic
+     * parseLogData, but every PARSE_CHECKPOINT_BYTES it pauses and yields the
+     * absolute stream position, so a caller can drive it either synchronously
+     * (parseLogData wrapper — the historical behavior, byte-for-byte) or
+     * asynchronously with progress reporting and a memory-pressure abort
+     * (flightlog_index.buildIntraframeDirectories). Must be invoked as a
+     * method (parser.parseLogDataGen(...)) so `this` is the parser instance. */
+    this.parseLogDataGen = function* (raw, startOffset, endOffset) {
         let looksLikeFrameCompleted,
             prematureEof = false,
             frameStart = 0,
             frameType,
             lastFrameType = null;
+        let checkpointPos;
 
         invalidateMainStream();
 
@@ -1988,7 +2010,12 @@ export function FlightLogParser(logData) {
         stream.pos = stream.start;
         stream.end = endOffset === undefined ? stream.end : endOffset;
         stream.eof = false;
+        checkpointPos = stream.pos;
         while (true) {
+            if (stream.pos - checkpointPos >= PARSE_CHECKPOINT_BYTES) {
+                checkpointPos = stream.pos;
+                yield stream.pos;
+            }
             const command = stream.readChar();
 
             if (lastFrameType) {
@@ -2071,6 +2098,24 @@ export function FlightLogParser(logData) {
         this.stats.totalBytes += stream.end - stream.start;
 
         return true;
+    };
+
+    /**
+     * Continue the current parse by scanning the given range of offsets for data. To begin an independent parse,
+     * call resetDataState() first.
+     */
+    /* Classic synchronous API — drives the generator to completion in one
+     * uninterrupted turn, ignoring the checkpoints. Same throws, same parse
+     * results as the pre-generator implementation; every existing caller
+     * (flightlog.js chunk decoding, the synchronous index build) keeps its
+     * exact behavior. */
+    this.parseLogData = function (raw, startOffset, endOffset) {
+        const gen = this.parseLogDataGen(raw, startOffset, endOffset);
+        let result = gen.next();
+        while (!result.done) {
+            result = gen.next();
+        }
+        return result.value;
     };
 
     const frameTypes = {

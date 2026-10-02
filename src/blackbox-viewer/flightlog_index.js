@@ -1,14 +1,44 @@
-import { FlightLogParser } from "./flightlog_parser";
+import { FlightLogParser, ParserAbortedError } from "./flightlog_parser";
 import { FlightLogEvent } from "./flightlog_fielddefs";
 import { IMU } from "./imu";
 import { ArrayDataStream } from "./datastream";
 import "./decoders";
+
+/**
+ * Drive the parser's parseLogDataGen generator asynchronously: report
+ * progress at every checkpoint, give the event loop a turn so the UI can
+ * paint, and abort cleanly when `shouldAbort` (memory-pressure guard) fires.
+ * Aborting throws ParserAbortedError after closing the generator; the frames
+ * decoded so far stay valid for a partial load.
+ *
+ * @param {FlightLogParser} parser  with onFrameReady already wired up
+ * @param {Function} onProgress (absoluteStreamPos) => void
+ * @param {Function} shouldAbort (absoluteStreamPos) => boolean
+ */
+async function driveParseWithGuard(parser, onProgress, shouldAbort) {
+    const gen = parser.parseLogDataGen(false);
+    let result = gen.next();
+    while (!result.done) {
+        if (onProgress) {
+            onProgress(result.value);
+        }
+        if (shouldAbort && shouldAbort(result.value)) {
+            gen.return(undefined);
+            throw new ParserAbortedError();
+        }
+        // Macrotask: lets Vue flush the progress UI and the browser paint,
+        // and gives the GC a slot to run on memory-constrained devices.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        result = gen.next();
+    }
+}
 
 export function FlightLogIndex(logData) {
     //Private:
     const that = this;
     let logBeginOffsets = false;
     let intraframeDirectories = false;
+    let prebuilding = false;
 
     function buildLogOffsetsIndex() {
         const stream = new ArrayDataStream(logData);
@@ -33,10 +63,27 @@ export function FlightLogIndex(logData) {
         }
     }
 
-    function buildIntraframeDirectories() {
+    /**
+     * Parse every log in the file and build its intraframe directory.
+     *
+     * Without arguments this is the historical synchronous build (returns a
+     * promise, but the body runs without awaits, so the lazy sync getters
+     * below get their result immediately).
+     *
+     * With `asyncOpts` ({ onProgress, shouldAbort }) the data pass runs on the
+     * parseLogDataGen generator: it yields to the event loop at checkpoints
+     * (progress UI keeps painting) and stops cleanly on a memory-pressure
+     * abort — the affected log is flagged `partial: true` and keeps everything
+     * parsed up to the stop point, instead of the whole load failing.
+     */
+    async function buildIntraframeDirectories(asyncOpts) {
+        const async = asyncOpts || null;
+        const onProgress = async ? async.onProgress : null;
+        const shouldAbort = async ? async.shouldAbort : null;
+
         const parser = new FlightLogParser(logData, that);
 
-        intraframeDirectories = [];
+        const directories = [];
 
         for (let i = 0; i < that.getLogCount(); i++) {
             const intraIndex = {
@@ -264,9 +311,20 @@ export function FlightLogIndex(logData) {
                 };
 
                 try {
-                    parser.parseLogData(false);
+                    if (async) {
+                        // Async mode: generator-driven pass with progress + abort.
+                        // A memory-pressure abort leaves the frames parsed so far
+                        // in place (partial load) rather than failing the log.
+                        await driveParseWithGuard(parser, onProgress, shouldAbort);
+                    } else {
+                        parser.parseLogData(false);
+                    }
                 } catch (e) {
-                    intraIndex.error = e;
+                    if (async && e instanceof ParserAbortedError) {
+                        intraIndex.partial = true;
+                    } else {
+                        intraIndex.error = e;
+                    }
                 }
 
                 // Don't bother including the initial (empty) states for S and H frames if we didn't have any in the source data
@@ -285,13 +343,21 @@ export function FlightLogIndex(logData) {
             if (intraIndex.minTime === false) {
                 if (sawEndMarker) {
                     intraIndex.error = "Logging paused, no data";
+                } else if (intraIndex.partial) {
+                    // Memory guard fired before any frame of this log was
+                    // decoded — there is nothing usable to show for it.
+                    intraIndex.error = "Out of memory before any data could be parsed";
                 } else {
                     intraIndex.error = "Log truncated, no data";
                 }
             }
 
-            intraframeDirectories.push(intraIndex);
+            directories.push(intraIndex);
         }
+
+        // Assign only when complete: during an async build a sync getter
+        // must keep seeing `false` (unbuilt) rather than a half-filled array.
+        intraframeDirectories = directories;
     }
 
     //Public:
@@ -375,6 +441,52 @@ export function FlightLogIndex(logData) {
         }
 
         return intraframeDirectories;
+    };
+
+    /* True while an async prebuild() is still parsing. Sync callers should
+     * avoid forcing a duplicate synchronous build during that window; the
+     * load flow awaits prebuild before touching the getters. */
+    this.isPrebuilding = function () {
+        return prebuilding;
+    };
+
+    /* Read one intraframe directory WITHOUT triggering the synchronous build
+     * (returns undefined while unbuilt). Lets callers check flags like
+     * `partial` cheaply and safely during/after an async prebuild. */
+    this.peekDirectory = function (logIndex) {
+        return intraframeDirectories ? intraframeDirectories[logIndex] : undefined;
+    };
+
+    /**
+     * Pre-build the intraframe directories asynchronously, before any sync
+     * getter triggers the blocking one-shot build. Enables a loading progress
+     * display and a memory-pressure abort (partial load) on devices with
+     * small heaps — see memory_guard.js and the load flow in main.js.
+     *
+     * @param {Object} [opts]
+     * @param {Function} [opts.onProgress] (absoluteStreamPos) => void
+     * @param {Function} [opts.shouldAbort] (absoluteStreamPos) => boolean
+     * @returns {Promise<boolean>} true when this call performed the build,
+     *          false when the index was already (being) built.
+     */
+    this.prebuild = function (opts) {
+        if (intraframeDirectories || prebuilding) {
+            return Promise.resolve(false);
+        }
+        prebuilding = true;
+        return buildIntraframeDirectories(opts)
+            .then(() => {
+                prebuilding = false;
+                return true;
+            })
+            .catch((e) => {
+                prebuilding = false;
+                // buildIntraframeDirectories stores per-log errors itself and
+                // never rejects in practice; rethrow-shaped safety net keeps
+                // the flag consistent without crashing the load flow.
+                console.error("FlightLogIndex prebuild failed:", e);
+                return false;
+            });
     };
 
     this.getIntraframeDirectory = function (logIndex) {

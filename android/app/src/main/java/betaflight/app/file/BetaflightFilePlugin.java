@@ -19,6 +19,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import android.os.ParcelFileDescriptor;
 
 @CapacitorPlugin(name = "BetaflightFile")
 public class BetaflightFilePlugin extends Plugin {
@@ -41,6 +43,10 @@ public class BetaflightFilePlugin extends Plugin {
         final Uri uri;
         final String name;
         OutputStream outputStream;
+        /** Lazily-opened stream for sequential chunked reads (readFileChunk).
+         *  Kept open across calls so a large file is read strictly forward
+         *  with no re-seek per chunk; released by closeFile(). */
+        InputStream inputStream;
 
         OpenFile(Uri uri, String name) {
             this.uri = uri;
@@ -341,6 +347,91 @@ public class BetaflightFilePlugin extends Plugin {
     }
 
     // ---------------------------------------------------------------
+    // getFileSize  –  size in bytes of an open file
+    // ---------------------------------------------------------------
+
+    @PluginMethod
+    public void getFileSize(PluginCall call) {
+        String fileId = call.getString("fileId");
+        OpenFile file = getOpenFileOrReject(call, fileId);
+        if (file == null) return;
+
+        try {
+            JSObject ret = new JSObject();
+            ret.put("size", fileSize(file.uri));
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "getFileSize failed", e);
+            call.reject("Failed to get file size: " + e.getMessage());
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // readFileChunk  –  sequential chunked read (bounded memory)
+    // ---------------------------------------------------------------
+
+    // Upper bound for one bridge transfer: 8 MiB of file → 16 MiB of hex
+    // chars, far below the heap sizes where the WebView starts suffering.
+    private static final int MAX_READ_CHUNK = 8 * 1024 * 1024;
+    private static final int DEFAULT_READ_CHUNK = 2 * 1024 * 1024;
+
+    /**
+     * Read the next `length` bytes of an open file and return them hex-encoded.
+     *
+     * Unlike readFile/readFileAsBlob (which buffer the ENTIRE file — as a Java
+     * byte[] plus a 2x-sized hex String — and thereby drove the WebView into
+     * out-of-memory kills on large BBL logs), this keeps a single InputStream
+     * open per fileId and hands out bounded pieces. The JS side assembles the
+     * pieces into one pre-allocated Uint8Array and finishes with closeFile().
+     * Response: { data: hex, bytesRead: int, eof: boolean }.
+     */
+    @PluginMethod
+    public void readFileChunk(PluginCall call) {
+        String fileId = call.getString("fileId");
+        OpenFile file = getOpenFileOrReject(call, fileId);
+        if (file == null) return;
+
+        Integer requested = call.getInt("length");
+        int maxLength = requested != null ? requested : DEFAULT_READ_CHUNK;
+        if (maxLength <= 0) {
+            call.reject("length must be positive");
+            return;
+        }
+        maxLength = Math.min(maxLength, MAX_READ_CHUNK);
+
+        try {
+            if (file.inputStream == null) {
+                InputStream is = getContext().getContentResolver().openInputStream(file.uri);
+                if (is == null) {
+                    throw new Exception("Could not open input stream for " + file.uri);
+                }
+                file.inputStream = new BufferedInputStream(is);
+            }
+
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream(Math.min(maxLength, 1 << 20));
+            byte[] chunk = new byte[64 * 1024];
+            int total = 0;
+            while (total < maxLength) {
+                int n = file.inputStream.read(chunk, 0, Math.min(chunk.length, maxLength - total));
+                if (n == -1) {
+                    break;
+                }
+                buffer.write(chunk, 0, n);
+                total += n;
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("data", byteArrayToHexString(buffer.toByteArray()));
+            ret.put("bytesRead", total);
+            ret.put("eof", total < maxLength);
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "readFileChunk failed", e);
+            call.reject("Failed to read file chunk: " + e.getMessage());
+        }
+    }
+
+    // ---------------------------------------------------------------
     // writeFile  –  atomic write (string or hex-encoded binary)
     // ---------------------------------------------------------------
 
@@ -452,6 +543,14 @@ public class BetaflightFilePlugin extends Plugin {
                     file.outputStream = null;
                 }
             }
+            // Chunked-read sessions hold an open InputStream; release it too.
+            if (file.inputStream != null) {
+                try {
+                    file.inputStream.close();
+                } finally {
+                    file.inputStream = null;
+                }
+            }
 
             JSObject ret = new JSObject();
             ret.put("success", true);
@@ -519,6 +618,26 @@ public class BetaflightFilePlugin extends Plugin {
             }
             return buffer.toByteArray();
         }
+    }
+
+    /** Size in bytes of a document URI: OpenableColumns.SIZE first, falling
+     *  back to stat'ing a file descriptor for providers that return null. */
+    private long fileSize(Uri uri) throws Exception {
+        ContentResolver resolver = getContext().getContentResolver();
+        try (Cursor cursor = resolver.query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int idx = cursor.getColumnIndex(OpenableColumns.SIZE);
+                if (idx >= 0 && !cursor.isNull(idx)) {
+                    return cursor.getLong(idx);
+                }
+            }
+        }
+        try (ParcelFileDescriptor pfd = resolver.openFileDescriptor(uri, "r")) {
+            if (pfd != null) {
+                return pfd.statSize;
+            }
+        }
+        throw new Exception("Could not determine size of " + uri);
     }
 
     /**

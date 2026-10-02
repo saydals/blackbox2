@@ -16,6 +16,9 @@
 import { ref } from "vue";
 import { isAndroid } from "../../js/utils/checkCompatibility.js";
 import FileSystem from "../../js/FileSystem.js";
+import { useAppStore } from "../stores/app.js";
+
+const appStore = useAppStore();
 
 // Accepted extensions (lower-case); source for both the <input> accept attribute
 // and the Android SAF picker.
@@ -47,19 +50,42 @@ async function openFilePicker() {
         return;
     }
 
+    // Android reads the file in chunks here (first 10% of the loading bar);
+    // main.js fills the rest while building the log index.
+    appStore.indexProgressLabel = "Reading…";
+    appStore.indexProgress = 0;
+    let handedOff = false;
     try {
         const descriptor = await FileSystem.pickOpenFile("Blackbox log/config/workspace file", LOG_FILE_EXTENSIONS);
         if (!descriptor) {
             // Cancelled.
             return;
         }
-        const blob = await FileSystem.readFileAsBlob(descriptor);
+        const blob = await FileSystem.readFileAsBlob(descriptor, (loaded, total) => {
+            appStore.indexProgress = total > 0 ? Math.round((loaded / total) * 10) : 0;
+        });
         // File carries .name/.size for the FileReader path in main.js.
         const file = new File([blob], descriptor.name, { type: blob.type });
+        // Synchronous handoff: loadFiles → loadLogFile → readAsArrayBuffer
+        // adopts the overlay (read continues, then the parse phase). Clearing
+        // it here would race away the progress the load flow just set.
+        handedOff = true;
         emit("files-selected", [file]);
     } catch (error) {
-        if (error?.name !== "AbortError") {
-            console.error("Failed to open blackbox file:", error);
+        if (error?.name === "AbortError") {
+            return;
+        }
+        if (error?.name === "LogTooLargeError") {
+            // Refused up front because the file cannot fit this device's
+            // memory — show why instead of letting the WebView be OOM-killed.
+            appStore.loadNotice = error.message;
+            return;
+        }
+        console.error("Failed to open blackbox file:", error);
+    } finally {
+        if (!handedOff) {
+            // Clear the overlay on cancel/failure paths only.
+            appStore.indexProgress = null;
         }
     }
 }

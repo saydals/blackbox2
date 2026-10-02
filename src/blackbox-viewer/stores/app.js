@@ -38,6 +38,14 @@ export const useAppStore = defineStore("app", () => {
     const graphTimeDisplay = ref("1.0");
     const videoOffsetDisplay = ref("+0.0");
 
+    // Log loading progress overlay: null hides the overlay; 0–100 drives the
+    // bar. indexProgressLabel names the current phase ("Reading …"/"Analyzing log…").
+    // loadNotice is a persistent status-bar message (e.g. partial load after a
+    // memory-pressure abort); cleared when a new log starts loading.
+    const indexProgress = ref(null);
+    const indexProgressLabel = ref("");
+    const loadNotice = ref(null);
+
     // Dialog open states (shared between legacy JS and Vue)
     const graphConfigDialogOpen = ref(false);
     const headerDialogOpen = ref(false);
@@ -83,6 +91,9 @@ export const useAppStore = defineStore("app", () => {
         statusViewerVersion,
         graphTimeDisplay,
         videoOffsetDisplay,
+        indexProgress,
+        indexProgressLabel,
+        loadNotice,
         graphConfigDialogOpen,
         headerDialogOpen,
         settingsDialogOpen,

@@ -68,6 +68,32 @@ export function FlightLog(logData) {
     };
 
     /**
+     * Pre-build the log index asynchronously with progress reporting and an
+     * optional memory-pressure abort (partial load). See FlightLogIndex
+     * .prebuild — the load flow in main.js calls this before any sync getter
+     * so large logs show loading progress instead of a frozen UI, and low
+     * memory devices keep the parsed portion instead of crashing.
+     *
+     * @param {Object} [opts] { onProgress(pos), shouldAbort(pos) => bool }
+     * @returns {Promise<boolean>} true when this call performed the build
+     */
+    this.prebuildIndex = function (opts) {
+        return logIndexes.prebuild(opts);
+    };
+
+    /**
+     * True when the index build for the given log (or the current one) was
+     * stopped early by the memory guard — the log only covers the portion
+     * parsed before the stop. Reads the directory non-destructively (no sync
+     * build trigger).
+     */
+    this.isPartialLog = function (index) {
+        index = index ?? logIndex;
+        const directory = logIndexes.peekDirectory(index);
+        return Boolean(directory && directory.partial);
+    };
+
+    /**
      * Get the fatal parse error encountered when reading the log with the given index, or false if no error
      * was encountered.
      */

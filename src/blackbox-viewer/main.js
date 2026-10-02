@@ -7,6 +7,7 @@ import { GraphConfig } from "./graph_config.js";
 import { SeekBar } from "./seekbar.js";
 import { createInitialWorkspaces, normalizeWorkspaces, isUserSlotId } from "./workspaces.js";
 import { FlightLog } from "./flightlog.js";
+import { createMemoryGuard } from "./memory_guard.js";
 import { stringTimetoMsec, validate, mouseNotification } from "./tools.js";
 import { restorePenDefaults, changePenSmoothing, changePenZoom, changePenExpo } from "./pen_adjustment.js";
 import { createKeydownHandler, createDropdownSpaceGuard } from "./keyboard_handler.js";
@@ -219,6 +220,55 @@ export function bootstrapViewer() {
         setGraphZoom(graphStore.graphZoom, true);
     }
 
+    /* READ progress occupies the first 10% of the loading bar (fast on local
+     * storage, but visible on Android SAF reads of large files); the index
+     * build takes 10–100%. */
+    const READ_PROGRESS_SPAN = 10;
+
+    function setLoadProgress(label, percent) {
+        appStore.indexProgressLabel = label;
+        appStore.indexProgress = percent;
+    }
+
+    /**
+     * Async index pre-build with loading progress and a memory-pressure
+     * guard. Runs the FlightLogIndex build on the parser generator so the UI
+     * keeps painting, and stops before the WebView heap limit is hit — the
+     * log then covers only the parsed portion (partial load) instead of the
+     * renderer being killed by the OS. On abort a persistent status notice
+     * explains what happened; a stale guard (another file was loaded in the
+     * meantime) never touches the UI.
+     */
+    async function prebuildLogIndex(flightLog, dataArray) {
+        const guard = createMemoryGuard({ logDataBytes: dataArray.length });
+
+        setLoadProgress("Analyzing log…", READ_PROGRESS_SPAN);
+
+        try {
+            await flightLog.prebuildIndex({
+                onProgress: (pos) => {
+                    setLoadProgress(
+                        "Analyzing log…",
+                        READ_PROGRESS_SPAN + Math.round((90 * pos) / dataArray.length),
+                    );
+                },
+                shouldAbort: (pos) => guard.check(pos),
+            });
+        } catch (e) {
+            // prebuild resolves per-log errors internally; this is a safety net.
+            console.error("Log index prebuild failed:", e);
+        }
+
+        setLoadProgress("", 100);
+        appStore.indexProgress = null;
+
+        if (guard.isAborted() && logStore.flightLog === flightLog) {
+            // The guard fired: the log now covers only the portion that was
+            // parsed before the stop. Tell the user instead of failing.
+            appStore.loadNotice = `Partial load — out of memory (${guard.describe()}); only the beginning of the flight is shown`;
+        }
+    }
+
     function loadFiles(files) {
         for (const file of files) {
             let isLog = file.name.match(/\.(BBL|TXT|CFL|BFL|LOG)$/i);
@@ -257,7 +307,15 @@ export function bootstrapViewer() {
     function loadLogFile(file) {
         const reader = new FileReader();
 
-        reader.onload = function (e) {
+        // Reading phase — first slice of the loading bar. lengthComputable is
+        // false for some sources; then the bar just starts at the parse phase.
+        reader.onprogress = function (e) {
+            if (e.lengthComputable) {
+                setLoadProgress(`Reading ${file.name}…`, Math.round((READ_PROGRESS_SPAN * e.loaded) / e.total));
+            }
+        };
+
+        reader.onload = async function (e) {
             const bytes = e.target.result;
 
             const fileContents = String.fromCodePoint(...new Uint8Array(bytes, 0, 100));
@@ -282,6 +340,9 @@ export function bootstrapViewer() {
 
             logStore.flightLogDataArray = new Uint8Array(bytes);
 
+            // Fresh load: clear any partial-load notice from a previous log.
+            appStore.loadNotice = null;
+
             try {
                 logStore.flightLog = new FlightLog(logStore.flightLogDataArray);
             } catch (err) {
@@ -292,6 +353,10 @@ export function bootstrapViewer() {
             if (!graphStore.graphConfig) {
                 graphStore.graphConfig = GraphConfig.getExampleGraphConfigs(logStore.flightLog, ["Motors", "Gyros"]);
             }
+
+            // Build the index with visible progress and a memory guard BEFORE
+            // any sync getter triggers the blocking one-shot build.
+            await prebuildLogIndex(logStore.flightLog, logStore.flightLogDataArray);
 
             renderLogFileInfo(file);
             playbackStore.currentOffsetCache.log = file.name; // store the name of the loaded log file
@@ -311,7 +376,7 @@ export function bootstrapViewer() {
 
     // Load a log directly from an in-memory buffer (e.g. pulled from a connected FC's
     // dataflash) rather than a File picked from disk. Mirrors loadLogFile's log branch.
-    function loadLogBuffer(data, name) {
+    async function loadLogBuffer(data, name) {
         const fileInfo = { name: name || "BLACKBOX_LOG.BBL" };
 
         logStore.flightLogDataArray = data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -326,6 +391,9 @@ export function bootstrapViewer() {
         if (!graphStore.graphConfig) {
             graphStore.graphConfig = GraphConfig.getExampleGraphConfigs(logStore.flightLog, ["Motors", "Gyros"]);
         }
+
+        // Same async index pre-build as loadLogFile (progress + memory guard).
+        await prebuildLogIndex(logStore.flightLog, logStore.flightLogDataArray);
 
         renderLogFileInfo(fileInfo);
         playbackStore.currentOffsetCache.log = fileInfo.name;

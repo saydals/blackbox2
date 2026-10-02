@@ -138,6 +138,48 @@ class CapacitorFile {
     }
 
     /**
+     * Size in bytes of an open file.
+     * @param {string} fileId
+     * @returns {number} file size, or 0 when the provider does not report one
+     */
+    async getFileSize(fileId) {
+        this.#assertAvailable();
+        try {
+            const result = await BetaflightFile.getFileSize({ fileId });
+            return result.size ?? 0;
+        } catch (error) {
+            console.error(`${logHead} getFileSize error:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Sequential chunked read: returns the next `length` bytes of an open
+     * file, hex-encoded. The native side keeps ONE InputStream open per
+     * fileId across calls (strictly forward, no re-seek), so a multi-hundred-
+     * megabyte log is transferred in bounded pieces instead of one giant
+     * hex string. Release the session with closeFile().
+     *
+     * @param {string} fileId
+     * @param {number} length  max bytes to return this call
+     * @returns {{ data: string, bytesRead: number, eof: boolean }}
+     */
+    async readFileChunk(fileId, length) {
+        this.#assertAvailable();
+        try {
+            const result = await BetaflightFile.readFileChunk({ fileId, length });
+            return {
+                data: result.data,
+                bytesRead: result.bytesRead ?? 0,
+                eof: result.eof === true,
+            };
+        } catch (error) {
+            console.error(`${logHead} readFileChunk error:`, error);
+            throw error;
+        }
+    }
+
+    /**
      * Atomic write — writes entire content and closes.
      * @param {string} fileId
      * @param {string} data       String content (utf8) or hex-encoded bytes

@@ -2,6 +2,7 @@ import { isAndroid, isTauriDesktop } from "./utils/checkCompatibility";
 import CapacitorFile from "./protocols/CapacitorFile";
 import { hexStringToUint8Array, uint8ArrayToHexString } from "./utils/bytes.js";
 import { get as getConfig, set as setConfig } from "./ConfigStorage";
+import { createMemoryGuard } from "../blackbox-viewer/memory_guard.js";
 
 const EXTENSION_MIME_MAP = {
     ".txt": "text/plain",
@@ -574,9 +575,14 @@ class FileSystem {
     // readFileAsBlob
     // ---------------------------------------------------------------
 
-    async readFileAsBlob(file) {
+    /**
+     * Read a file as a Blob. On Android this streams the file in bounded
+     * chunks (see _androidReadFileAsBlob) so large logs don't blow the heap;
+     * `onProgress(loadedBytes, totalBytes)` reports the read progress there.
+     */
+    async readFileAsBlob(file, onProgress) {
         if (isAndroid()) {
-            return this._androidReadFileAsBlob(file);
+            return this._androidReadFileAsBlob(file, onProgress);
         }
 
         if (file._tauriPath) {
@@ -600,15 +606,93 @@ class FileSystem {
         return new Blob([bytes], { type: mimeForExtension(ext) });
     }
 
-    async _androidReadFileAsBlob(file) {
-        const hex = await CapacitorFile.readFileAsHex(file._fileHandle);
-        const bytes = hexStringToUint8Array(hex);
+    async _androidReadFileAsBlob(file, onProgress) {
+        // Chunked read protocol: the whole file is assembled in ONE
+        // pre-allocated Uint8Array from bounded bridge transfers. The old
+        // path (readFileAsHex) shipped the entire file as a single hex
+        // string — 2 bytes per byte as a Java String AND as a JS string plus
+        // bridge copies — a ~9x memory blowup that got multi-hundred-MB BBL
+        // logs killed by the Android WebView OOM killer ("app just closes").
+        // Peak here is 1x file size + one 2 MB chunk transient.
+        const fileId = file._fileHandle;
+        const READ_CHUNK_BYTES = 2 * 1024 * 1024;
 
-        // Determine MIME type from file name extension
-        const ext = file.name ? `.${file.name.split(".").pop()}` : "";
-        const mimeType = mimeForExtension(ext);
+        try {
+            let declaredSize = 0;
+            try {
+                declaredSize = await CapacitorFile.getFileSize(fileId);
+            } catch {
+                declaredSize = 0; // provider without size support → join path
+            }
+            if (Number.isFinite(declaredSize) && declaredSize > 0) {
+                // Refuse early, with a message, what would otherwise be an
+                // OOM kill: the pipeline needs ~2x the file in the heap.
+                const refusal = createMemoryGuard({}).canAcceptFile(declaredSize);
+                if (refusal) {
+                    const error = new Error(refusal);
+                    error.name = "LogTooLargeError";
+                    throw error;
+                }
+            }
 
-        return new Blob([bytes], { type: mimeType });
+            const knownSize = Number.isFinite(declaredSize) && declaredSize > 0;
+            let out = knownSize ? new Uint8Array(declaredSize) : null;
+            const parts = out ? null : [];
+            let filled = 0;
+
+            for (;;) {
+                const res = await CapacitorFile.readFileChunk(fileId, READ_CHUNK_BYTES);
+                const bytes = hexStringToUint8Array(res.data);
+
+                if (out) {
+                    if (filled + bytes.length > out.length) {
+                        // File grew between getFileSize and the reads (or the
+                        // reported size was wrong): switch to the join path.
+                        parts.push(out.subarray(0, filled));
+                        out = null;
+                    } else {
+                        out.set(bytes, filled);
+                    }
+                }
+                if (!out) {
+                    parts.push(bytes);
+                }
+                filled += bytes.length;
+
+                if (onProgress) {
+                    onProgress(filled, knownSize ? declaredSize : filled);
+                }
+                if (res.eof) {
+                    break;
+                }
+            }
+
+            let finalBytes = out;
+            if (!finalBytes) {
+                finalBytes = new Uint8Array(filled);
+                let pos = 0;
+                for (const part of parts) {
+                    finalBytes.set(part, pos);
+                    pos += part.length;
+                }
+            }
+            // Drop trailing slack when the provider's size over-reported.
+            const exact = finalBytes.length === filled ? finalBytes : finalBytes.slice(0, filled);
+
+            // Determine MIME type from file name extension
+            const ext = file.name ? `.${file.name.split(".").pop()}` : "";
+            const mimeType = mimeForExtension(ext);
+
+            return new Blob([exact], { type: mimeType });
+        } finally {
+            // The chunked session holds the SAF descriptor open natively;
+            // always release it (readFileAsBlob used to do this implicitly).
+            try {
+                await CapacitorFile.closeFile(fileId);
+            } catch {
+                // Session may already be gone after a failed read — nothing to do.
+            }
+        }
     }
 
     // ---------------------------------------------------------------

@@ -8,6 +8,8 @@
             <span v-if="appStore.statusLograteWarning" class="status-item status-lograte-warning">{{
                 appStore.statusLograteWarning
             }}</span>
+            <!-- Persistent load warning, e.g. "Partial load — out of memory …" -->
+            <span v-if="appStore.loadNotice" class="status-item status-load-notice">{{ appStore.loadNotice }}</span>
             <span v-if="appStore.statusFlightMode" class="status-item status-flight-mode">{{
                 appStore.statusFlightMode
             }}</span>
@@ -77,5 +79,13 @@ const workspaceStore = useWorkspaceStore();
 .status-lograte-warning {
     color: var(--error-500);
     font-weight: 600;
+}
+
+.status-load-notice {
+    color: var(--error-500);
+    font-weight: 600;
+    max-width: 60vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 </style>

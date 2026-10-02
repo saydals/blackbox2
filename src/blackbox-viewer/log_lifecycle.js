@@ -26,6 +26,11 @@ export function renderLogFileInfo(file) {
                 Math.ceil((logStore.flightLog.getMaxTime(index) - logStore.flightLog.getMinTime(index)) / 1000),
                 false,
             )}]`;
+            // Index build stopped early by the memory guard — the time range
+            // above only covers the parsed prefix; say so in the label.
+            if (logStore.flightLog.isPartialLog(index)) {
+                logLabel += " · partial (low memory)";
+            }
         }
         const label = logCount > 1 ? `${index + 1}/${logCount}: ${logLabel}` : logLabel;
         entries.push({ label, value: index, disabled: !!error });
