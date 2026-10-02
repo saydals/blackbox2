@@ -21,6 +21,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FileDescriptor;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.HashMap;
@@ -634,7 +635,10 @@ public class BetaflightFilePlugin extends Plugin {
         }
         try (ParcelFileDescriptor pfd = resolver.openFileDescriptor(uri, "r")) {
             if (pfd != null) {
-                return pfd.statSize;
+                FileDescriptor fd = pfd.getFileDescriptor();
+                long size = android.system.Os.lseek(fd, 0, android.system.OsConstants.SEEK_END);
+                android.system.Os.lseek(fd, 0, android.system.OsConstants.SEEK_SET);
+                return size;
             }
         }
         throw new Exception("Could not determine size of " + uri);
