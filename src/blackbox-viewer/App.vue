@@ -150,6 +150,7 @@
                 <UserSettingsDialog v-model:open="appStore.settingsDialogOpen" @save="onSaveSettings" />
                 <VideoExportDialog v-model:open="appStore.videoExportDialogOpen" />
                 <BblExportDialog v-model:open="appStore.bblExportDialogOpen" />
+                <CsvExportDialog v-model:open="appStore.csvExportDialogOpen" />
                 <GraphConfigDialog
                     v-model:open="appStore.graphConfigDialogOpen"
                     :flightLog="logStore.flightLog"
@@ -178,6 +179,7 @@ import { useWorkspaceStore } from "./stores/workspace.js";
 import AppMenu from "./components/AppMenu.vue";
 import VideoExportDialog from "./components/VideoExportDialog.vue";
 import BblExportDialog from "./components/BblExportDialog.vue";
+import CsvExportDialog from "./components/CsvExportDialog.vue";
 import WelcomePage from "./components/WelcomePage.vue";
 import ViewControls from "./components/ViewControls.vue";
 import PlaybackControls from "./components/PlaybackControls.vue";

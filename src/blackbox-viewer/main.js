@@ -17,7 +17,7 @@ import { isAndroid, isTauriAndroid } from "@/js/utils/checkCompatibility.js";
 /** True on every Android host: Capacitor APK and Tauri Android APK alike. */
 const isAndroidDevice = () => isAndroid() || isTauriAndroid();
 import { upgradeWorkspaceFormat, saveWorkspaces, loadWorkspaces } from "./workspace_io.js";
-import { exportCsv, exportGpx, exportSpectrumToCsv } from "./export_utils.js";
+import { exportGpx, exportSpectrumToCsv } from "./export_utils.js";
 import { cancelActiveVideoExport } from "./video_export.js";
 import {
     syncLogToVideo,
@@ -910,7 +910,8 @@ export function bootstrapViewer() {
     appStore.newGraphConfig = (newConfig, redrawChart) => newGraphConfig(newConfig, !redrawChart);
     appStore.exportCsv = () => {
         setGraphState(GRAPH_STATE_PAUSED);
-        exportCsv(logStore.flightLog, appStore.logFilename);
+        // CSV 내보내기도 BBL과 같이 다이얼로그(선택 구간 + 다운샘플링)로 연다.
+        appStore.csvExportDialogOpen = true;
     };
     appStore.exportGpx = () => {
         setGraphState(GRAPH_STATE_PAUSED);

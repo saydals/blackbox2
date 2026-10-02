@@ -29,6 +29,27 @@ export function getAvailableSampleRates(originalRate) {
     return available.sort((a, b) => b - a);
 }
 
+// 시간축 기준 다운샘플링: 목표 간격 격자에 가장 가까운 원본 프레임을 선택한다.
+// BBL 재인코딩 경로와 CSV 행 필터링 경로가 함께 쓰는 공용 로직 (BBL 내보내기의
+// 기존 알고리즘을 그대로 추출한 것) 이다. frames는 시간 오름차순으로 정렬되어
+// 있어야 하며, getTime(frame)이 프레임 시각(마이크로초)을 반환한다.
+export function selectFramesAtTargetGrid(frames, targetRate, getTime) {
+    const targetIntervalUs = 1e6 / targetRate;
+    const kept = [];
+    let nextTarget = getTime(frames[0]);
+    for (const frame of frames) {
+        if (getTime(frame) + targetIntervalUs / 2 >= nextTarget) {
+            kept.push(frame);
+            const steps = Math.max(1, Math.round((getTime(frame) - nextTarget) / targetIntervalUs + 1));
+            nextTarget += steps * targetIntervalUs;
+        }
+    }
+    if (kept.length === 0) {
+        kept.push(frames[0]);
+    }
+    return kept;
+}
+
 function buildEndOfLogMarker() {
     const marker = new Uint8Array(1 + 1 + END_OF_LOG_BYTES.length);
     marker[0] = 0x45; // 'E'
@@ -275,19 +296,8 @@ export function BblExporter(flightLog, rawData, startTime, endTime, sampleRate) 
             mains.sort((a, b) => a.frame[1] - b.frame[1]);
 
             // 시간축 기준 다운샘플링: 목표 간격 격자에 가장 가까운 원본 선택.
-            const targetIntervalUs = 1e6 / targetRate;
-            const kept = [];
-            let nextTarget = mains[0].frame[1];
-            for (const m of mains) {
-                if (m.frame[1] + targetIntervalUs / 2 >= nextTarget) {
-                    kept.push(m);
-                    const steps = Math.max(1, Math.round((m.frame[1] - nextTarget) / targetIntervalUs + 1));
-                    nextTarget += steps * targetIntervalUs;
-                }
-            }
-            if (kept.length === 0) {
-                kept.push(mains[0]);
-            }
+            // (CSV 내보내기와 공용인 selectFramesAtTargetGrid 사용)
+            const kept = selectFramesAtTargetGrid(mains, targetRate, (m) => m.frame[1]);
 
             const frameDef = decodeParser.frameDefs.I;
             if (!frameDef || !frameDef.count) {

@@ -17,6 +17,14 @@
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <!-- 앱 실행 시 잠깐 표시되던 벌(말벌) 아이콘 스플래시를 제거한다.
+             - android:background: pre-API 31 런칭 윈도우 배경 (기존 @drawable/splash 대체)
+             - windowSplashScreenBackground/AnimatedIcon: API 31+ 시스템 스플래시가
+               기본으로 그리는 런처 아이콘(벌)을 투명하게 덮어쓴다.
+             세 항목 모두 단색 배경으로 통일해 어떤 기기에서도 아이콘이 그려지지 않는다. -->
+        <item name="android:background">@android:color/white</item>
+        <item name="windowSplashScreenBackground">@android:color/white</item>
+        <item name="windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

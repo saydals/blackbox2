@@ -59,6 +59,7 @@ export const useAppStore = defineStore("app", () => {
     const keysDialogOpen = ref(false);
     const videoExportDialogOpen = ref(false);
     const bblExportDialogOpen = ref(false);
+    const csvExportDialogOpen = ref(false);
 
     // Callbacks registered by main.js (closure-dependent operations)
     const loadFiles = shallowRef(null);
@@ -108,6 +109,7 @@ export const useAppStore = defineStore("app", () => {
         keysDialogOpen,
         videoExportDialogOpen,
         bblExportDialogOpen,
+        csvExportDialogOpen,
         loadFiles,
         newGraphConfig,
         exportCsv,

@@ -14,7 +14,13 @@ const EXPORT_DESCRIPTIONS = {
 export function suggestedName(logFilename, fileExtension, options = {}) {
     const base = (logFilename || "log").replace(/\.[^/.]+$/, "");
 
-    if (fileExtension === "bbl" && options.flightIndex != null && options.startTime != null && options.endTime != null) {
+    // BBL과 CSV 내보내기가 같은 규칙을 쓴다: 비행번호 + 선택 구간 + 출력 샘플레이트.
+    if (
+        (fileExtension === "bbl" || fileExtension === "csv") &&
+        options.flightIndex != null &&
+        options.startTime != null &&
+        options.endTime != null
+    ) {
         const flightNumber = options.flightIndex + 1;
         // start/end는 절대 타임스탬프이므로 비행 시작(minTime) 기준 상대 시간으로 표기한다.
         // 예: flight2_11.0-21.0s_100Hz.bbl
@@ -26,7 +32,7 @@ export function suggestedName(logFilename, fileExtension, options = {}) {
         if (options.sampleRate != null && Number.isFinite(options.sampleRate)) {
             name += `_${options.sampleRate}Hz`;
         }
-        return `${name}.bbl`;
+        return `${name}.${fileExtension}`;
     }
 
     return `${base}.${fileExtension}`;
@@ -92,6 +98,15 @@ export function exportCsv(flightLog, logFilename, options = {}) {
     return saveExport("csv", suggestedName(logFilename, "csv"), (onSuccess, onFailure) =>
         CsvExporter(flightLog, options).dump(onSuccess, onFailure),
     );
+}
+
+// BBL 내보내기의 generateBbl과 같은 형태의 Promise 래퍼. CsvExportDialog가
+// BblExportDialog와 동일한 방식(다이얼로그에서 파일 선택 → 생성 → 저장)으로
+// CSV를 만들 때 사용한다.
+export function generateCsv(flightLog, options = {}) {
+    return new Promise((resolve, reject) => {
+        CsvExporter(flightLog, options).dump(resolve, reject);
+    });
 }
 
 export function exportGpx(flightLog, logFilename) {
