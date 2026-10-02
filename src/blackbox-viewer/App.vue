@@ -126,18 +126,26 @@
                      read + indexed (appStore.indexProgress 0–100); the async index
                      build yields at checkpoints so this actually paints on
                      low-power devices. Blocks input so nothing can trigger a
-                     duplicate sync index build mid-load. -->
+                     duplicate sync index build mid-load.
+                     Layout: centered "Loading" + animated dots above the bar
+                     (fixed-width dots span → the word never shifts), overall
+                     progress and total file size — "50% (25.3 MB)" — below it. -->
                 <div v-if="appStore.indexProgress !== null" class="log-load-overlay">
                     <div class="log-load-box">
-                        <div class="log-load-label">{{ appStore.indexProgressLabel || "Loading log…" }}</div>
+                        <div class="log-load-label">
+                            <span class="log-load-label-text">Loading</span><span class="log-load-dots" aria-hidden="true">{{ loadingDots }}</span>
+                        </div>
                         <div class="log-load-bar">
                             <div class="log-load-fill" :style="{ width: `${appStore.indexProgress}%` }"></div>
                         </div>
-                        <div class="log-load-pct">{{ appStore.indexProgress }}%</div>
+                        <div class="log-load-pct">
+                            {{ appStore.indexProgress }}%<span v-if="totalSizeLabel"> ({{ totalSizeLabel }})</span>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Dialogs -->
+                <LoadNoticeDialog />
                 <KeysDialog v-model:open="appStore.keysDialogOpen" />
                 <UserSettingsDialog v-model:open="appStore.settingsDialogOpen" @save="onSaveSettings" />
                 <VideoExportDialog v-model:open="appStore.videoExportDialogOpen" />
@@ -184,6 +192,7 @@ import Blackbox3DPanel from "./components/Blackbox3DPanel.vue";
 import FftButton from "./components/FftButton.vue";
 import FftPanel from "./components/FftPanel.vue";
 import KeysDialog from "./components/KeysDialog.vue";
+import LoadNoticeDialog from "./components/LoadNoticeDialog.vue";
 import UserSettingsDialog from "./components/UserSettingsDialog.vue";
 import GraphConfigDialog from "./components/GraphConfigDialog.vue";
 import HeaderDialog from "./components/HeaderDialog.vue";
@@ -252,6 +261,77 @@ const sysConfig = computed(() => {
 function onFilesSelected(files) {
     appStore.loadFiles?.(files);
 }
+
+// ---------------------------------------------------------------------------
+// Log loading overlay: animated "Loading…" dots + "% (total size)" readout.
+// ---------------------------------------------------------------------------
+// The dots cycle ".", "..", "...", "...." every 400 ms while the overlay is
+// visible so the user can tell the load is actively working even when the
+// percentage stalls (slow storage, one big header parse). The dots render in
+// a fixed-width, absolutely-positioned span: the word "Loading" keeps its
+// exact position while only the dot count changes.
+const LOADING_DOTS_STEP_MS = 400;
+const LOADING_DOTS_MAX = 4;
+
+const loadingDots = ref(".");
+let loadingDotsTimer = null;
+
+function startLoadingDots() {
+    if (loadingDotsTimer) {
+        return;
+    }
+    let dotCount = 1;
+    loadingDots.value = ".";
+    loadingDotsTimer = setInterval(() => {
+        dotCount = dotCount >= LOADING_DOTS_MAX ? 1 : dotCount + 1;
+        loadingDots.value = ".".repeat(dotCount);
+    }, LOADING_DOTS_STEP_MS);
+}
+
+function stopLoadingDots() {
+    if (loadingDotsTimer) {
+        clearInterval(loadingDotsTimer);
+        loadingDotsTimer = null;
+    }
+    loadingDots.value = ".";
+}
+
+// The overlay is driven purely by indexProgress (null → hidden); the dots
+// follow the same lifecycle. immediate: covers an overlay that is already
+// visible when this component mounts.
+watch(
+    () => appStore.indexProgress,
+    (value) => {
+        if (value !== null) {
+            startLoadingDots();
+        } else {
+            stopLoadingDots();
+        }
+    },
+    { immediate: true },
+);
+
+// Human-readable total size of the file being loaded, e.g. "25.3 MB"
+// (binary units, one decimal — same convention as the memory guard). Empty
+// when the size is unknown, so the line degrades to a plain "50%".
+const totalSizeLabel = computed(() => {
+    const bytes = appStore.indexProgressBytes;
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+        return "";
+    }
+    if (bytes < 1024) {
+        return `${bytes} B`;
+    }
+    const kb = bytes / 1024;
+    if (kb < 1024) {
+        return `${kb.toFixed(1)} KB`;
+    }
+    const mb = kb / 1024;
+    if (mb < 1024) {
+        return `${mb.toFixed(1)} MB`;
+    }
+    return `${(mb / 1024).toFixed(2)} GB`;
+});
 
 function onOpenSettings() {
     appStore.settingsDialogOpen = true;
@@ -474,6 +554,7 @@ onMounted(() => {
 onUnmounted(() => {
     document.removeEventListener("dragover", onDragOver);
     document.removeEventListener("drop", onDrop);
+    stopLoadingDots();
 });
 </script>
 
@@ -497,16 +578,36 @@ onUnmounted(() => {
     width: min(24rem, 80vw);
     padding: 1rem 1.25rem;
     border-radius: 0.5rem;
+    /* --text (black in light theme, near-white in dark theme) — NOT
+       --graph-text-secondary, which is always white because it targets the
+       dark graph canvas: on the light-theme near-white --surface-100 box it
+       made the label/percentage invisible ("only the bar was visible"). */
     background: var(--surface-100, #1b2027);
-    color: var(--graph-text-secondary, #cfd8e3);
+    color: var(--text, #cfd8e3);
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
 
 .log-load-label {
+    position: relative;
+    /* Shrink-to-fit + center: the label box is exactly the width of the
+       word "Loading", so the word itself sits perfectly centered above
+       the bar regardless of the animated dot count. */
+    align-self: center;
     font-size: 0.8rem;
     white-space: nowrap;
+}
+
+/* Animated dots live in a fixed-width area positioned right after the
+   label text — only the dot count changes, never the "Loading" position.
+   1.5em comfortably fits the maximum of four periods in UI fonts. */
+.log-load-dots {
+    position: absolute;
+    top: 0;
+    left: 100%;
+    width: 1.5em;
+    text-align: left;
+    white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .log-load-bar {
@@ -526,7 +627,9 @@ onUnmounted(() => {
 .log-load-pct {
     font-size: 0.7rem;
     font-variant-numeric: tabular-nums;
-    align-self: flex-end;
+    /* Centered under the bar: "50% (25.3 MB)" — overall progress plus the
+       total size of the file being loaded. */
+    text-align: center;
     opacity: 0.75;
 }
 </style>

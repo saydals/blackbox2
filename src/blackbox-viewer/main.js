@@ -230,14 +230,21 @@ export function bootstrapViewer() {
         appStore.indexProgress = percent;
     }
 
+    /* Binary-unit MB formatting for the partial-load notices — the same
+     * convention as the loading overlay's "50% (25.3 MB)" line. */
+    function formatMB(bytes) {
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
     /**
      * Async index pre-build with loading progress and a memory-pressure
      * guard. Runs the FlightLogIndex build on the parser generator so the UI
      * keeps painting, and stops before the WebView heap limit is hit — the
      * log then covers only the parsed portion (partial load) instead of the
      * renderer being killed by the OS. On abort a persistent status notice
-     * explains what happened; a stale guard (another file was loaded in the
-     * meantime) never touches the UI.
+     * explains what happened, PLUS a blocking OK-only dialog so the partial
+     * load is explicitly acknowledged; a stale guard (another file was
+     * loaded in the meantime) never touches the UI.
      */
     async function prebuildLogIndex(flightLog, dataArray) {
         const guard = createMemoryGuard({ logDataBytes: dataArray.length });
@@ -261,11 +268,23 @@ export function bootstrapViewer() {
 
         setLoadProgress("", 100);
         appStore.indexProgress = null;
+        appStore.indexProgressBytes = 0;
 
         if (guard.isAborted() && logStore.flightLog === flightLog) {
             // The guard fired: the log now covers only the portion that was
-            // parsed before the stop. Tell the user instead of failing.
+            // parsed before the stop. Tell the user instead of failing — a
+            // persistent status-bar notice …
             appStore.loadNotice = `Partial load — out of memory (${guard.describe()}); only the beginning of the flight is shown`;
+            // … and a blocking dialog (English only, dismissed exclusively
+            // via its OK button) that spells out the partial-load handling.
+            appStore.loadNoticeDialog = {
+                title: "Out of Memory — Log Partially Loaded",
+                message:
+                    `There is not enough memory on this device to load the entire log file ` +
+                    `(${guard.describe()}).\n\n` +
+                    `The log has been loaded partially: only the beginning of the flight is shown. ` +
+                    `Playback, seeking and analysis are limited to the portion that was loaded.`,
+            };
         }
     }
 
@@ -306,6 +325,9 @@ export function bootstrapViewer() {
 
     function loadLogFile(file) {
         const reader = new FileReader();
+
+        // Total file size for the loading overlay's "50% (25.3 MB)" line.
+        appStore.indexProgressBytes = file.size;
 
         // Reading phase — first slice of the loading bar. lengthComputable is
         // false for some sources; then the bar just starts at the parse phase.
@@ -358,6 +380,27 @@ export function bootstrapViewer() {
             // any sync getter triggers the blocking one-shot build.
             await prebuildLogIndex(logStore.flightLog, logStore.flightLogDataArray);
 
+            // Oversized file (Android): the read was capped at the front
+            // portion this device can load (file._partialLoad set by
+            // LogFileInput.vue). Tell the user — a persistent status-bar
+            // notice plus a blocking dialog (English only, dismissed
+            // exclusively via its OK button) that spells out the
+            // partial-load handling. Set AFTER the index build so the notice
+            // survives the log-switch re-render (and takes precedence over a
+            // guard-abort notice: the truncation is the root cause).
+            if (file._partialLoad) {
+                const { readBytes, totalBytes } = file._partialLoad;
+                appStore.loadNotice =
+                    `Partial load — file too large (${formatMB(totalBytes)}); only the first ${formatMB(readBytes)} is shown`;
+                appStore.loadNoticeDialog = {
+                    title: "File Too Large — Log Partially Loaded",
+                    message:
+                        `This log file is ${formatMB(totalBytes)} — too large for this device's available memory.\n\n` +
+                        `Only the first ${formatMB(readBytes)} of the file have been read and loaded.\n` +
+                        `Playback, seeking and analysis are limited to the portion that was loaded.`,
+                };
+            }
+
             renderLogFileInfo(file);
             playbackStore.currentOffsetCache.log = file.name; // store the name of the loaded log file
             playbackStore.currentOffsetCache.index = null; // and clear the index
@@ -380,6 +423,12 @@ export function bootstrapViewer() {
         const fileInfo = { name: name || "BLACKBOX_LOG.BBL" };
 
         logStore.flightLogDataArray = data instanceof Uint8Array ? data : new Uint8Array(data);
+
+        // Fresh load: clear any partial-load notice from a previous log.
+        appStore.loadNotice = null;
+
+        // Total size for the loading overlay's "50% (25.3 MB)" line.
+        appStore.indexProgressBytes = logStore.flightLogDataArray.length;
 
         try {
             logStore.flightLog = new FlightLog(logStore.flightLogDataArray);

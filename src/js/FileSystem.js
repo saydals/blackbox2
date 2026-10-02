@@ -579,10 +579,15 @@ class FileSystem {
      * Read a file as a Blob. On Android this streams the file in bounded
      * chunks (see _androidReadFileAsBlob) so large logs don't blow the heap;
      * `onProgress(loadedBytes, totalBytes)` reports the read progress there.
+     *
+     * `options.allowPartial` (default false): when the file is too large for
+     * this device's memory, instead of throwing LogTooLargeError, read only
+     * the front portion that fits (partial load) and notify the caller via
+     * `options.onTruncated(readBytes, totalBytes)`.
      */
-    async readFileAsBlob(file, onProgress) {
+    async readFileAsBlob(file, onProgress, options = {}) {
         if (isAndroid()) {
-            return this._androidReadFileAsBlob(file, onProgress);
+            return this._androidReadFileAsBlob(file, onProgress, options);
         }
 
         if (file._tauriPath) {
@@ -606,7 +611,11 @@ class FileSystem {
         return new Blob([bytes], { type: mimeForExtension(ext) });
     }
 
-    async _androidReadFileAsBlob(file, onProgress) {
+    // Floor for a partial (front-portion) read: below this the device's heap
+    // is so small that even a truncated log is useless — refuse instead.
+    static MIN_PARTIAL_READ_BYTES = 4 * 1024 * 1024;
+
+    async _androidReadFileAsBlob(file, onProgress, options = {}) {
         // Chunked read protocol: the whole file is assembled in ONE
         // pre-allocated Uint8Array from bounded bridge transfers. The old
         // path (readFileAsHex) shipped the entire file as a single hex
@@ -624,24 +633,44 @@ class FileSystem {
             } catch {
                 declaredSize = 0; // provider without size support → join path
             }
-            if (Number.isFinite(declaredSize) && declaredSize > 0) {
-                // Refuse early, with a message, what would otherwise be an
-                // OOM kill: the pipeline needs ~2x the file in the heap.
-                const refusal = createMemoryGuard({}).canAcceptFile(declaredSize);
-                if (refusal) {
+
+            // Oversized file handling. Without allowPartial: refuse early,
+            // with a message, what would otherwise be an OOM kill. With
+            // allowPartial: keep going, but cap the read at the largest
+            // front portion this device can load (readBudget below) — the
+            // log loads partially instead of not at all.
+            const guard = createMemoryGuard({});
+            const refusal = Number.isFinite(declaredSize) && declaredSize > 0 ? guard.canAcceptFile(declaredSize) : null;
+
+            let readBudget = Infinity; // how many bytes to read at most
+            let truncated = false; // true when readBudget < declaredSize
+            if (refusal) {
+                readBudget = Math.min(declaredSize, guard.maxPartialLoadBytes());
+                if (!options.allowPartial || readBudget < FileSystem.MIN_PARTIAL_READ_BYTES) {
+                    // No partial loading requested, or the device's budget is
+                    // too small for a meaningful partial log — refuse.
                     const error = new Error(refusal);
                     error.name = "LogTooLargeError";
                     throw error;
                 }
+                truncated = true;
             }
 
             const knownSize = Number.isFinite(declaredSize) && declaredSize > 0;
-            let out = knownSize ? new Uint8Array(declaredSize) : null;
+            // For a truncated read the buffer holds readBudget bytes; the
+            // progress denominator is the same budget, so the overlay's
+            // "50% (25.3 MB)" refers to the portion that will be loaded.
+            const targetSize = truncated ? readBudget : declaredSize;
+            let out = knownSize ? new Uint8Array(targetSize) : null;
             const parts = out ? null : [];
             let filled = 0;
 
             for (;;) {
-                const res = await CapacitorFile.readFileChunk(fileId, READ_CHUNK_BYTES);
+                const remaining = readBudget - filled;
+                if (remaining <= 0) {
+                    break; // partial read complete — front portion is in the buffer
+                }
+                const res = await CapacitorFile.readFileChunk(fileId, Math.min(READ_CHUNK_BYTES, remaining));
                 const bytes = hexStringToUint8Array(res.data);
 
                 if (out) {
@@ -660,7 +689,7 @@ class FileSystem {
                 filled += bytes.length;
 
                 if (onProgress) {
-                    onProgress(filled, knownSize ? declaredSize : filled);
+                    onProgress(filled, truncated ? readBudget : knownSize ? declaredSize : filled);
                 }
                 if (res.eof) {
                     break;
@@ -678,6 +707,10 @@ class FileSystem {
             }
             // Drop trailing slack when the provider's size over-reported.
             const exact = finalBytes.length === filled ? finalBytes : finalBytes.slice(0, filled);
+
+            if (truncated && typeof options.onTruncated === "function") {
+                options.onTruncated(exact.length, declaredSize);
+            }
 
             // Determine MIME type from file name extension
             const ext = file.name ? `.${file.name.split(".").pop()}` : "";

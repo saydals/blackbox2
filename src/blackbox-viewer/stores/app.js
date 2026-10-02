@@ -40,11 +40,17 @@ export const useAppStore = defineStore("app", () => {
 
     // Log loading progress overlay: null hides the overlay; 0–100 drives the
     // bar. indexProgressLabel names the current phase ("Reading …"/"Analyzing log…").
+    // indexProgressBytes is the total size of the file being loaded — shown
+    // under the bar as "50% (25.3 MB)" (0/unknown → size hidden).
     // loadNotice is a persistent status-bar message (e.g. partial load after a
     // memory-pressure abort); cleared when a new log starts loading.
+    // loadNoticeDialog, when non-null ({ title, message }), opens the blocking
+    // LoadNoticeDialog — it can ONLY be dismissed through its OK button.
     const indexProgress = ref(null);
     const indexProgressLabel = ref("");
+    const indexProgressBytes = ref(0);
     const loadNotice = ref(null);
+    const loadNoticeDialog = ref(null);
 
     // Dialog open states (shared between legacy JS and Vue)
     const graphConfigDialogOpen = ref(false);
@@ -93,7 +99,9 @@ export const useAppStore = defineStore("app", () => {
         videoOffsetDisplay,
         indexProgress,
         indexProgressLabel,
+        indexProgressBytes,
         loadNotice,
+        loadNoticeDialog,
         graphConfigDialogOpen,
         headerDialogOpen,
         settingsDialogOpen,

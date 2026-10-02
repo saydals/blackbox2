@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
+import { Buffer } from "node:buffer";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,9 +8,64 @@ import { FlightLogParser, ParserAbortedError } from "../src/blackbox-viewer/flig
 import { FlightLogIndex } from "../src/blackbox-viewer/flightlog_index";
 import { createMemoryGuard } from "../src/blackbox-viewer/memory_guard";
 
+// --- Android partial-read test doubles -----------------------------------
+// FileSystem's Android branch is gated on isAndroid() and talks to the SAF
+// plugin through CapacitorFile. Replace both so the chunked read protocol
+// (including the oversized-file front-portion truncation) is testable in Node.
+vi.mock("../src/js/utils/checkCompatibility", () => ({
+    isAndroid: () => true,
+    isTauriDesktop: () => false,
+}));
+
+vi.mock("../src/js/protocols/CapacitorFile", () => ({
+    default: {
+        getFileSize: vi.fn(),
+        readFileChunk: vi.fn(),
+        closeFile: vi.fn().mockResolvedValue(undefined),
+    },
+}));
+
+// ConfigStorage attaches itself to window at import time (no window in Node).
+// FileSystem only uses get/set for config paths unrelated to file reading.
+vi.mock("../src/js/ConfigStorage", () => ({
+    get: vi.fn(() => ({})),
+    set: vi.fn(),
+    remove: vi.fn(),
+}));
+
+import FileSystem from "../src/js/FileSystem.js";
+import CapacitorFile from "../src/js/protocols/CapacitorFile";
+
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const samplePath = path.join(rootDir, "..", "sample.bbl");
 const sampleBytes = new Uint8Array(readFileSync(samplePath));
+
+/** Install a fake Chromium heap API (performance.memory) with the given limit. */
+function fakeHeap(jsHeapSizeLimit) {
+    Object.defineProperty(performance, "memory", {
+        value: { usedJSHeapSize: 0, jsHeapSizeLimit },
+        configurable: true,
+    });
+}
+
+/** Remove the fake heap API so later tests see no signal again. */
+function restoreHeap() {
+    Object.defineProperty(performance, "memory", { value: undefined, configurable: true });
+}
+
+/** Serve a virtual file of `size` bytes through the CapacitorFile mock. */
+function serveVirtualFile(size) {
+    let served = 0;
+    CapacitorFile.getFileSize.mockReset().mockResolvedValue(size);
+    CapacitorFile.readFileChunk.mockReset().mockImplementation(async (fileId, length) => {
+        const n = Math.max(0, Math.min(length, size - served));
+        const data = Buffer.alloc(n, 0x42).toString("hex");
+        served += n;
+        return { data, bytesRead: n, eof: served >= size };
+    });
+    CapacitorFile.closeFile.mockClear();
+    return () => served;
+}
 
 describe("parseLogData generator refactor (loading progress + partial load)", () => {
     it("sync parseLogData parses the whole log identically (no checkpoints observed)", () => {
@@ -146,5 +202,111 @@ describe("parseLogData generator refactor (loading progress + partial load)", ()
         } finally {
             Object.defineProperty(performance, "memory", { value: origMemory, configurable: true });
         }
+    });
+
+    it("maxPartialLoadBytes is the exact inverse of canAcceptFile", () => {
+        // Simulated Chromium heap API with a 256 MB limit.
+        const origMemory = performance.memory;
+        Object.defineProperty(
+            performance,
+            "memory",
+            { value: { usedJSHeapSize: 0, jsHeapSizeLimit: 256 * 1024 * 1024 }, configurable: true },
+        );
+        try {
+            const guard = createMemoryGuard({});
+            const budget = guard.maxPartialLoadBytes();
+            // 256 MB × 0.85 / 2 — the largest file that passes canAcceptFile.
+            expect(budget).toBe(Math.floor((256 * 1024 * 1024 * 0.85) / 2));
+            expect(guard.canAcceptFile(budget)).toBeNull();
+            expect(guard.canAcceptFile(budget * 2 + 1)).toContain("larger than this device can load");
+        } finally {
+            Object.defineProperty(performance, "memory", { value: origMemory, configurable: true });
+        }
+    });
+});
+
+describe("Android oversized-file partial loading (FileSystem.readFileAsBlob)", () => {
+    const MB = 1024 * 1024;
+    const fileDescriptor = { _fileHandle: "test-file-id", name: "LOG00001.BBL" };
+
+    afterEach(() => {
+        restoreHeap();
+        vi.clearAllMocks();
+    });
+
+    it("oversized file with allowPartial reads only the front portion", async () => {
+        // Heap limit 10 MB → partial budget = floor(10 MB × 0.85 / 2) ≈ 4.25 MB.
+        const heapLimit = 10 * MB;
+        const declaredSize = 12 * MB;
+        const expectedBudget = Math.floor((heapLimit * 0.85) / 2);
+        fakeHeap(heapLimit);
+        const served = serveVirtualFile(declaredSize);
+
+        const progress = [];
+        let truncatedInfo = null;
+        const blob = await FileSystem.readFileAsBlob(
+            fileDescriptor,
+            (loaded, total) => progress.push([loaded, total]),
+            {
+                allowPartial: true,
+                onTruncated: (readBytes, totalBytes) => (truncatedInfo = { readBytes, totalBytes }),
+            },
+        );
+
+        // Exactly the front portion of the file was read — no more, no less.
+        expect(blob.size).toBe(expectedBudget);
+        expect(served()).toBe(expectedBudget);
+        // The truncation is reported with (read, total) byte counts.
+        expect(truncatedInfo).toEqual({ readBytes: expectedBudget, totalBytes: declaredSize });
+        // Progress totals refer to the portion being loaded (the budget), so
+        // the overlay's "50% (25.3 MB)" stays consistent end to end.
+        expect(progress.length).toBeGreaterThan(0);
+        for (const [loaded, total] of progress) {
+            expect(total).toBe(expectedBudget);
+            expect(loaded).toBeLessThanOrEqual(total);
+        }
+        expect(progress[progress.length - 1][0]).toBe(expectedBudget);
+        // The SAF session is always released.
+        expect(CapacitorFile.closeFile).toHaveBeenCalledWith("test-file-id");
+    });
+
+    it("oversized file without allowPartial is still refused (LogTooLargeError)", async () => {
+        const heapLimit = 10 * MB;
+        fakeHeap(heapLimit);
+        serveVirtualFile(12 * MB); // 24 MB needed vs ~8.5 MB allowed → refusal
+
+        await expect(FileSystem.readFileAsBlob(fileDescriptor, null)).rejects.toMatchObject({
+            name: "LogTooLargeError",
+        });
+        // Refused before any chunk was transferred.
+        expect(CapacitorFile.readFileChunk).not.toHaveBeenCalled();
+        expect(CapacitorFile.closeFile).toHaveBeenCalledWith("test-file-id");
+    });
+
+    it("device with a heap too small for a meaningful partial load refuses even with allowPartial", async () => {
+        // Heap limit 8 MB → budget ≈ 3.4 MB < 4 MB floor → refuse instead of
+        // loading a uselessly tiny front portion.
+        fakeHeap(8 * MB);
+        serveVirtualFile(12 * MB);
+
+        await expect(
+            FileSystem.readFileAsBlob(fileDescriptor, null, { allowPartial: true, onTruncated: () => {} }),
+        ).rejects.toMatchObject({ name: "LogTooLargeError" });
+    });
+
+    it("file within the budget loads fully with no truncation", async () => {
+        fakeHeap(10 * MB);
+        const size = 2 * MB;
+        serveVirtualFile(size);
+
+        let onTruncated = null;
+        const blob = await FileSystem.readFileAsBlob(fileDescriptor, null, {
+            allowPartial: true,
+            onTruncated: () => (onTruncated = "called"),
+        });
+
+        expect(blob.size).toBe(size);
+        expect(onTruncated).toBeNull(); // no truncation for an acceptable file
+        expect(CapacitorFile.readFileChunk).toHaveBeenCalledTimes(1); // single 2 MB chunk
     });
 });

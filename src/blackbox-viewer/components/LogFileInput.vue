@@ -54,18 +54,46 @@ async function openFilePicker() {
     // main.js fills the rest while building the log index.
     appStore.indexProgressLabel = "Reading…";
     appStore.indexProgress = 0;
+    appStore.indexProgressBytes = 0;
     let handedOff = false;
+    let partialLoadInfo = null;
     try {
         const descriptor = await FileSystem.pickOpenFile("Blackbox log/config/workspace file", LOG_FILE_EXTENSIONS);
         if (!descriptor) {
             // Cancelled.
             return;
         }
-        const blob = await FileSystem.readFileAsBlob(descriptor, (loaded, total) => {
-            appStore.indexProgress = total > 0 ? Math.round((loaded / total) * 10) : 0;
-        });
-        // File carries .name/.size for the FileReader path in main.js.
+        // allowPartial: an oversized file (would OOM the WebView) is read
+        // only up to the front portion this device can load, instead of
+        // being refused — the log then loads partially.
+        const blob = await FileSystem.readFileAsBlob(
+            descriptor,
+            (loaded, total) => {
+                // Total size for the overlay's "50% (25.3 MB)" line — available
+                // from the first chunk when the provider reports a size. For a
+                // truncated read the total is the front portion being loaded.
+                if (total > 0) {
+                    appStore.indexProgressBytes = total;
+                }
+                appStore.indexProgress = total > 0 ? Math.round((loaded / total) * 10) : 0;
+            },
+            {
+                allowPartial: true,
+                onTruncated: (readBytes, totalBytes) => {
+                    // The file was cut short: remember it and let main.js show
+                    // the partial-load notice/dialog once the log starts
+                    // loading (the overlay size follows the loaded portion).
+                    partialLoadInfo = { readBytes, totalBytes };
+                },
+            },
+        );
+        // File carries .name/.size for the FileReader path in main.js. The
+        // _partialLoad tag tells main.js the blob is the front portion of a
+        // larger file (partial load), so it can inform the user.
         const file = new File([blob], descriptor.name, { type: blob.type });
+        if (partialLoadInfo) {
+            file._partialLoad = partialLoadInfo;
+        }
         // Synchronous handoff: loadFiles → loadLogFile → readAsArrayBuffer
         // adopts the overlay (read continues, then the parse phase). Clearing
         // it here would race away the progress the load flow just set.
@@ -77,8 +105,16 @@ async function openFilePicker() {
         }
         if (error?.name === "LogTooLargeError") {
             // Refused up front because the file cannot fit this device's
-            // memory — show why instead of letting the WebView be OOM-killed.
+            // memory (partial loading was requested but the device's budget
+            // is too small for a meaningful partial log) — show why instead
+            // of letting the WebView be OOM-killed: a persistent status
+            // notice plus a blocking dialog that can only be dismissed via
+            // its OK button.
             appStore.loadNotice = error.message;
+            appStore.loadNoticeDialog = {
+                title: "File Too Large",
+                message: `${error.message}\n\nThe file was not loaded. Try a smaller log file.`,
+            };
             return;
         }
         console.error("Failed to open blackbox file:", error);
@@ -86,6 +122,7 @@ async function openFilePicker() {
         if (!handedOff) {
             // Clear the overlay on cancel/failure paths only.
             appStore.indexProgress = null;
+            appStore.indexProgressBytes = 0;
         }
     }
 }

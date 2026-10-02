@@ -132,5 +132,26 @@ export function createMemoryGuard({ logDataBytes = 0 } = {}) {
             }
             return null;
         },
+
+        /**
+         * The largest file size (in bytes) this device can plausibly load —
+         * the exact inverse of the canAcceptFile() criterion. When a file is
+         * too large, the caller can read only this many bytes from the FRONT
+         * of the file and load that portion (partial load) instead of
+         * refusing outright. Returns Infinity when no memory signal exists
+         * (desktop browsers never refuse, so never truncate either).
+         */
+        maxPartialLoadBytes() {
+            let limit = 0;
+            if (hasHeapApi) {
+                limit = heap.jsHeapSizeLimit;
+            } else if (hasDeviceMemory) {
+                limit = budgetBytes();
+            } else {
+                return Infinity;
+            }
+
+            return Math.floor((limit * HEAP_ABORT_RATIO) / 2);
+        },
     };
 }
